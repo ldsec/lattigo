@@ -523,7 +523,7 @@ func testRotKeyGenCols(testCtx *testContext, t *testing.T) {
 			rotkey := ckks.NewRotationKeys()
 			P0.Finalize(testCtx.params, P0.share, crp, rotkey)
 
-			evaluator.RotateColumns(ciphertext, k, rotkey, receiver)
+			evaluator.Rotate(ciphertext, k, rotkey, receiver)
 
 			coeffsWant := make([]complex128, ringQP.N>>1)
 
@@ -684,9 +684,7 @@ func newTestVectors(testCtx *testContext, encryptor ckks.Encryptor, a float64, t
 
 	values[0] = complex(0.607538, 0.555668)
 
-	plaintext = ckks.NewPlaintext(testCtx.params, testCtx.params.MaxLevel(), testCtx.params.Scale())
-
-	testCtx.encoder.Encode(plaintext, values, slots)
+	plaintext = testCtx.encoder.EncodeNew(values, testCtx.params.LogSlots())
 
 	ciphertext = encryptor.EncryptNew(plaintext)
 
@@ -707,7 +705,7 @@ func verifyTestVectors(testCtx *testContext, decryptor ckks.Decryptor, valuesWan
 
 	slots := testCtx.params.Slots()
 
-	valuesTest = testCtx.encoder.Decode(plaintextTest, slots)
+	valuesTest = testCtx.encoder.Decode(plaintextTest, testCtx.params.LogSlots())
 
 	var deltaReal, deltaImag float64
 

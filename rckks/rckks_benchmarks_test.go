@@ -1,4 +1,4 @@
-package ckks
+package rckks
 
 import (
 	"testing"
@@ -6,7 +6,7 @@ import (
 	"github.com/ldsec/lattigo/v2/ring"
 )
 
-func BenchmarkCKKSScheme(b *testing.B) {
+func BenchmarkRCKKSScheme(b *testing.B) {
 
 	var err error
 	var testContext = new(testParams)
@@ -23,7 +23,7 @@ func BenchmarkCKKSScheme(b *testing.B) {
 		if testContext, err = genTestParams(defaultParams, 0); err != nil {
 			panic(err)
 		}
-
+		benchNTT(testContext, b)
 		benchEncoder(testContext, b)
 		benchKeyGen(testContext, b)
 		benchEncrypt(testContext, b)
@@ -33,37 +33,61 @@ func BenchmarkCKKSScheme(b *testing.B) {
 	}
 }
 
+func benchNTT(testContext *testParams, b *testing.B) {
+
+	ringQ := testContext.ringQ
+	ringQ4NthRoot, _ := ring.NewRingWithNthRoot(ringQ.N, ringQ.N<<2, ringQ.Modulus)
+
+	sampler := ring.NewUniformSampler(testContext.prng, ringQ)
+	p1 := sampler.ReadNew()
+
+	b.Run(testString(testContext, "NTTRCKKS/NTT"), func(b *testing.B) {
+
+		for i := 0; i < b.N; i++ {
+			NTTRCKKS(ringQ4NthRoot, p1, p1)
+		}
+
+	})
+
+	b.Run(testString(testContext, "NTTRCKKS/InvNTT"), func(b *testing.B) {
+
+		for i := 0; i < b.N; i++ {
+			InvNTTRCKKS(ringQ4NthRoot, p1, p1)
+		}
+	})
+}
+
 func benchEncoder(testContext *testParams, b *testing.B) {
 
 	encoder := testContext.encoder
-	logSlots := testContext.params.LogSlots()
+	slots := testContext.params.Slots()
 
 	b.Run(testString(testContext, "Encoder/Encode/"), func(b *testing.B) {
 
-		values := make([]complex128, 1<<logSlots)
-		for i := uint64(0); i < 1<<logSlots; i++ {
-			values[i] = complex(randomFloat(-1, 1), randomFloat(-1, 1))
+		values := make([]float64, slots)
+		for i := uint64(0); i < slots; i++ {
+			values[i] = randomFloat(-1, 1)
 		}
 
 		plaintext := NewPlaintext(testContext.params, testContext.params.MaxLevel(), testContext.params.Scale())
 
 		for i := 0; i < b.N; i++ {
-			encoder.Encode(plaintext, values, logSlots)
+			encoder.Encode(plaintext, values, slots)
 		}
 	})
 
 	b.Run(testString(testContext, "Encoder/Decode/"), func(b *testing.B) {
 
-		values := make([]complex128, 1<<logSlots)
-		for i := uint64(0); i < 1<<logSlots; i++ {
-			values[i] = complex(randomFloat(-1, 1), randomFloat(-1, 1))
+		values := make([]float64, slots)
+		for i := uint64(0); i < slots; i++ {
+			values[i] = randomFloat(-1, 1)
 		}
 
 		plaintext := NewPlaintext(testContext.params, testContext.params.MaxLevel(), testContext.params.Scale())
-		encoder.Encode(plaintext, values, logSlots)
+		encoder.Encode(plaintext, values, slots)
 
 		for i := 0; i < b.N; i++ {
-			encoder.Decode(plaintext, logSlots)
+			encoder.Decode(plaintext, slots)
 		}
 	})
 }
@@ -94,19 +118,19 @@ func benchEncrypt(testContext *testParams, b *testing.B) {
 	plaintext := NewPlaintext(testContext.params, testContext.params.MaxLevel(), testContext.params.Scale())
 	ciphertext := NewCiphertext(testContext.params, 1, testContext.params.MaxLevel(), testContext.params.Scale())
 
-	b.Run(testString(testContext, "Encrypt/key=Pk/"), func(b *testing.B) {
+	b.Run(testString(testContext, "Encrypt/Pk/Slow"), func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			encryptorPk.Encrypt(plaintext, ciphertext)
 		}
 	})
 
-	b.Run(testString(testContext, "EncryptFast/key=Pk/"), func(b *testing.B) {
+	b.Run(testString(testContext, "Encrypt/Pk/Fast"), func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			encryptorPk.EncryptFast(plaintext, ciphertext)
 		}
 	})
 
-	b.Run(testString(testContext, "Encrypt/key=Sk/"), func(b *testing.B) {
+	b.Run(testString(testContext, "Encrypt/Sk/"), func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			encryptorSk.Encrypt(plaintext, ciphertext)
 		}
@@ -139,7 +163,6 @@ func benchEvaluator(testContext *testParams, b *testing.B) {
 	rlk := testContext.kgen.GenRelinKey(testContext.sk)
 	rotkey := NewRotationKeys()
 	testContext.kgen.GenRotationKey(RotationLeft, testContext.sk, 1, rotkey)
-	testContext.kgen.GenRotationKey(Conjugate, testContext.sk, 0, rotkey)
 
 	b.Run(testString(testContext, "Evaluator/Add/"), func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
@@ -198,21 +221,9 @@ func benchEvaluator(testContext *testParams, b *testing.B) {
 		}
 	})
 
-	b.Run(testString(testContext, "Evaluator/Conjugate/"), func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			evaluator.Conjugate(ciphertext1, rotkey, ciphertext1)
-		}
-	})
-
 	b.Run(testString(testContext, "Evaluator/Relin/"), func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			evaluator.Relinearize(receiver, rlk, ciphertext1)
-		}
-	})
-
-	b.Run(testString(testContext, "Evaluator/Conjugate/"), func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			evaluator.Conjugate(ciphertext1, rotkey, ciphertext1)
 		}
 	})
 

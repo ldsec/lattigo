@@ -43,14 +43,14 @@ func TestBootstrapp(t *testing.T) {
 		// Insecure params for fast testing only
 		if !*flagLongTest {
 			params.logN = 14
-			params.logSlots = 13
+			params.logSlots = 12
 		}
 
 		if testContext, err = genTestParams(params, btpParams.H); err != nil {
 			panic(err)
 		}
 
-		slots := testContext.params.Slots()
+		logSlots := testContext.params.LogSlots()
 
 		t.Run(testString(testContext, "ChebySin/"), func(t *testing.T) {
 
@@ -73,9 +73,13 @@ func TestBootstrapp(t *testing.T) {
 				values[i] = sin2pi2pi(values[i])
 			}
 
+			eval.MultByConst(ciphertext, 2/(cheby.b-cheby.a), ciphertext)
+			eval.AddConst(ciphertext, (-cheby.a-cheby.b)/(cheby.b-cheby.a), ciphertext)
+			eval.Rescale(ciphertext, eval.(*evaluator).scale, ciphertext)
+
 			//fmt.Println(ciphertext.Level() - 1)
 			//start := time.Now()
-			if ciphertext, err = testContext.evaluator.EvaluateCheby(ciphertext, cheby, testContext.rlk); err != nil {
+			if ciphertext, err = eval.EvaluateCheby(ciphertext, cheby, testContext.rlk); err != nil {
 				t.Error(err)
 			}
 			//fmt.Printf("Elapsed : %s \n", time.Since(start))
@@ -130,21 +134,25 @@ func TestBootstrapp(t *testing.T) {
 				values[i] /= 6.283185307179586
 			}
 
-			testContext.evaluator.AddConst(ciphertext, -0.25, ciphertext)
+			eval.AddConst(ciphertext, -0.25, ciphertext)
+
+			eval.MultByConst(ciphertext, 2/((cheby.b-cheby.a)*scFac), ciphertext)
+			eval.AddConst(ciphertext, (-cheby.a-cheby.b)/(cheby.b-cheby.a), ciphertext)
+			eval.Rescale(ciphertext, eval.(*evaluator).scale, ciphertext)
 
 			//fmt.Println(ciphertext.Level(), ciphertext.Scale())
 			//start := time.Now()
-			if ciphertext, err = testContext.evaluator.EvaluateChebySpecial(ciphertext, scFac, cheby, testContext.rlk); err != nil {
+			if ciphertext, err = eval.EvaluateCheby(ciphertext, cheby, testContext.rlk); err != nil {
 				t.Error(err)
 			}
 			//fmt.Println(ciphertext.Level(), ciphertext.Scale())
 
 			for i := 0; i < scNum; i++ {
 				sqrt2pi *= sqrt2pi
-				testContext.evaluator.MulRelin(ciphertext, ciphertext, testContext.rlk, ciphertext)
-				testContext.evaluator.Add(ciphertext, ciphertext, ciphertext)
-				testContext.evaluator.AddConst(ciphertext, -sqrt2pi, ciphertext)
-				testContext.evaluator.Rescale(ciphertext, eval.(*evaluator).scale, ciphertext)
+				eval.MulRelin(ciphertext, ciphertext, testContext.rlk, ciphertext)
+				eval.Add(ciphertext, ciphertext, ciphertext)
+				eval.AddConst(ciphertext, -sqrt2pi, ciphertext)
+				eval.Rescale(ciphertext, eval.(*evaluator).scale, ciphertext)
 			}
 
 			//fmt.Printf("Elapsed : %s \n", time.Since(start))
@@ -195,19 +203,23 @@ func TestBootstrapp(t *testing.T) {
 
 			testContext.evaluator.AddConst(ciphertext, -0.25, ciphertext)
 
+			eval.MultByConst(ciphertext, 2/((cheby.b-cheby.a)*scFac), ciphertext)
+			eval.AddConst(ciphertext, (-cheby.a-cheby.b)/(cheby.b-cheby.a), ciphertext)
+			eval.Rescale(ciphertext, eval.(*evaluator).scale, ciphertext)
+
 			//fmt.Println(ciphertext.Level(), ciphertext.Scale())
 			//start := time.Now()
-			if ciphertext, err = testContext.evaluator.EvaluateChebySpecial(ciphertext, scFac, cheby, testContext.rlk); err != nil {
+			if ciphertext, err = eval.EvaluateCheby(ciphertext, cheby, testContext.rlk); err != nil {
 				t.Error(err)
 			}
 			//fmt.Println(ciphertext.Level(), ciphertext.Scale())
 
 			for i := 0; i < scNum; i++ {
 				sqrt2pi *= sqrt2pi
-				testContext.evaluator.MulRelin(ciphertext, ciphertext, testContext.rlk, ciphertext)
-				testContext.evaluator.Add(ciphertext, ciphertext, ciphertext)
-				testContext.evaluator.AddConst(ciphertext, -sqrt2pi, ciphertext)
-				testContext.evaluator.Rescale(ciphertext, eval.(*evaluator).scale, ciphertext)
+				eval.MulRelin(ciphertext, ciphertext, testContext.rlk, ciphertext)
+				eval.Add(ciphertext, ciphertext, ciphertext)
+				eval.AddConst(ciphertext, -sqrt2pi, ciphertext)
+				eval.Rescale(ciphertext, eval.(*evaluator).scale, ciphertext)
 			}
 
 			//fmt.Printf("Elapsed : %s \n", time.Since(start))
@@ -227,20 +239,20 @@ func TestBootstrapp(t *testing.T) {
 				panic(err)
 			}
 
-			values := make([]complex128, slots)
+			values := make([]complex128, 1<<logSlots)
 			for i := range values {
 				values[i] = complex(randomFloat(-1, 1), randomFloat(-1, 1))
 			}
 
 			values[0] = complex(0.9238795325112867, 0.3826834323650898)
 			values[1] = complex(0.9238795325112867, 0.3826834323650898)
-			if slots > 2 {
+			if 1<<logSlots > 2 {
 				values[2] = complex(0.9238795325112867, 0.3826834323650898)
 				values[3] = complex(0.9238795325112867, 0.3826834323650898)
 			}
 
 			plaintext := NewPlaintext(testContext.params, testContext.params.MaxLevel(), testContext.params.scale)
-			testContext.encoder.Encode(plaintext, values, slots)
+			testContext.encoder.Encode(plaintext, values, logSlots)
 
 			ciphertext := testContext.encryptorPk.EncryptNew(plaintext)
 
@@ -259,17 +271,17 @@ func TestBootstrapp(t *testing.T) {
 
 func newTestVectorsSineBootstrapp(testContext *testParams, encryptor Encryptor, a, b float64, t *testing.T) (values []complex128, plaintext *Plaintext, ciphertext *Ciphertext) {
 
-	slots := testContext.params.Slots()
+	logSlots := testContext.params.LogSlots()
 
-	values = make([]complex128, slots)
+	values = make([]complex128, 1<<logSlots)
 
-	for i := uint64(0); i < slots; i++ {
+	for i := uint64(0); i < 1<<logSlots; i++ {
 		values[i] = complex(math.Round(randomFloat(a, b))+randomFloat(-1, 1)/1000, 0)
 	}
 
 	plaintext = NewPlaintext(testContext.params, testContext.params.MaxLevel(), testContext.params.Scale())
 
-	testContext.encoder.EncodeNTT(plaintext, values, slots)
+	testContext.encoder.EncodeNTT(plaintext, values, logSlots)
 
 	if encryptor != nil {
 		ciphertext = encryptor.EncryptNew(plaintext)

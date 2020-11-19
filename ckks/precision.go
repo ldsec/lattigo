@@ -37,13 +37,14 @@ func GetPrecisionStats(params *Parameters, encoder Encoder, decryptor Decryptor,
 
 	var valuesTest []complex128
 
-	slots := params.Slots()
+	logSlots := params.LogSlots()
+	slots := uint64(1 << logSlots)
 
 	switch element.(type) {
 	case *Ciphertext:
-		valuesTest = encoder.Decode(decryptor.DecryptNew(element.(*Ciphertext)), slots)
+		valuesTest = encoder.Decode(decryptor.DecryptNew(element.(*Ciphertext)), logSlots)
 	case *Plaintext:
-		valuesTest = encoder.Decode(element.(*Plaintext), slots)
+		valuesTest = encoder.Decode(element.(*Plaintext), logSlots)
 	case []complex128:
 		valuesTest = element.([]complex128)
 	}
@@ -52,7 +53,7 @@ func GetPrecisionStats(params *Parameters, encoder Encoder, decryptor Decryptor,
 
 	var delta complex128
 
-	diff := make([]complex128, params.Slots())
+	diff := make([]complex128, slots)
 
 	prec.MaxDelta = complex(0, 0)
 	prec.MinDelta = complex(1, 1)
@@ -107,7 +108,7 @@ func GetPrecisionStats(params *Parameters, encoder Encoder, decryptor Decryptor,
 
 	prec.MinPrecision = deltaToPrecision(prec.MaxDelta)
 	prec.MaxPrecision = deltaToPrecision(prec.MinDelta)
-	prec.MeanDelta /= complex(float64(params.Slots()), 0)
+	prec.MeanDelta /= complex(float64(slots), 0)
 	prec.MeanPrecision = deltaToPrecision(prec.MeanDelta)
 	prec.MedianDelta = calcmedian(diff)
 	prec.MedianPrecision = deltaToPrecision(prec.MedianDelta)

@@ -312,7 +312,8 @@ func NewRotationKeys() (rotKey *RotationKeys) {
 // GenRot populates the target RotationKeys with a SwitchingKey for the desired rotation type and amount.
 func (keygen *keyGenerator) GenRot(rotType Rotation, sk *SecretKey, k uint64, rotKey *RotationKeys) {
 
-	if keygen.ringQP == nil {
+	ringQP := keygen.ringQP
+	if ringQP == nil {
 		panic("Cannot GenRot: modulus P is empty")
 	}
 
@@ -324,7 +325,7 @@ func (keygen *keyGenerator) GenRot(rotType Rotation, sk *SecretKey, k uint64, ro
 		}
 
 		if rotKey.evakeyRotColLeft[k] == nil && k != 0 {
-			rotKey.evakeyRotColLeft[k] = keygen.genrotKey(sk.Get(), keygen.galElRotColRight[k])
+			rotKey.evakeyRotColLeft[k] = keygen.genrotKey(sk.Get(), GaloisGen, ringQP.N-k)
 		}
 
 	case RotationRight:
@@ -334,11 +335,11 @@ func (keygen *keyGenerator) GenRot(rotType Rotation, sk *SecretKey, k uint64, ro
 		}
 
 		if rotKey.evakeyRotColRight[k] == nil && k != 0 {
-			rotKey.evakeyRotColRight[k] = keygen.genrotKey(sk.Get(), keygen.galElRotColLeft[k])
+			rotKey.evakeyRotColRight[k] = keygen.genrotKey(sk.Get(), GaloisGen, k)
 		}
 
 	case RotationRow:
-		rotKey.evakeyRotRow = keygen.genrotKey(sk.Get(), keygen.galElRotRow)
+		rotKey.evakeyRotRow = keygen.genrotKey(sk.Get(), ringQP.NthRoot-1, 1)
 	}
 }
 
@@ -411,12 +412,12 @@ func (rotKey *RotationKeys) SetRotKey(rotType Rotation, k uint64, evakey [][2]*r
 	}
 }
 
-func (keygen *keyGenerator) genrotKey(sk *ring.Poly, gen uint64) (switchingkey *SwitchingKey) {
+func (keygen *keyGenerator) genrotKey(sk *ring.Poly, gen, k uint64) (switchingkey *SwitchingKey) {
 
 	skIn := sk
 	skOut := keygen.polypool[1]
 
-	ring.PermuteNTT(skIn, gen, skOut)
+	ring.PermuteNTT(skIn, gen, k, keygen.ringQP.N, keygen.ringQP.NthRoot, skOut)
 
 	switchingkey = keygen.newSwitchingKey(skIn, skOut)
 

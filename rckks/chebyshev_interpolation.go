@@ -1,4 +1,4 @@
-package ckks
+package rckks
 
 import (
 	"math"
@@ -7,23 +7,13 @@ import (
 // ChebyshevInterpolation is a struct storing the coefficients, degree and range of a Chebyshev interpolation polynomial.
 type ChebyshevInterpolation struct {
 	Poly
-	a complex128
-	b complex128
-}
-
-// A returns the start of the approximation interval.
-func (c *ChebyshevInterpolation) A() complex128 {
-	return c.a
-}
-
-// B returns the end of the approximation interval.
-func (c *ChebyshevInterpolation) B() complex128 {
-	return c.b
+	a float64
+	b float64
 }
 
 // Approximate computes a Chebyshev approximation of the input function, for the range [-a, b] of degree degree.
 // To be used in conjunction with the function EvaluateCheby.
-func Approximate(function func(complex128) complex128, a, b complex128, degree int) (cheby *ChebyshevInterpolation) {
+func Approximate(function func(float64) float64, a, b float64, degree int) (cheby *ChebyshevInterpolation) {
 
 	cheby = new(ChebyshevInterpolation)
 	cheby.a = a
@@ -33,7 +23,7 @@ func Approximate(function func(complex128) complex128, a, b complex128, degree i
 
 	nodes := chebyshevNodes(degree+1, a, b)
 
-	fi := make([]complex128, len(nodes))
+	fi := make([]float64, len(nodes))
 	for i := range nodes {
 		fi[i] = function(nodes[i])
 	}
@@ -43,19 +33,19 @@ func Approximate(function func(complex128) complex128, a, b complex128, degree i
 	return
 }
 
-func chebyshevNodes(n int, a, b complex128) (u []complex128) {
-	u = make([]complex128, n)
-	var x, y complex128
+func chebyshevNodes(n int, a, b float64) (u []float64) {
+	u = make([]float64, n)
+	var x, y float64
 	for k := 1; k < n+1; k++ {
 		x = 0.5 * (a + b)
 		y = 0.5 * (b - a)
-		u[k-1] = x + y*complex(math.Cos((float64(k)-0.5)*(3.141592653589793/float64(n))), 0)
+		u[k-1] = x + y*math.Cos((float64(k)-0.5)*(3.141592653589793/float64(n)))
 	}
 	return
 }
 
-func evaluateChebyshevPolynomial(coeffs []complex128, x complex128, a, b complex128) (y complex128) {
-	var u, Tprev, Tnext, T complex128
+func evaluateChebyshevPolynomial(coeffs []float64, x float64, a, b float64) (y float64) {
+	var u, Tprev, Tnext, T float64
 	u = (2*x - a - b) / (b - a)
 	Tprev = 1
 	T = u
@@ -69,13 +59,13 @@ func evaluateChebyshevPolynomial(coeffs []complex128, x complex128, a, b complex
 	return
 }
 
-func chebyCoeffs(nodes, fi []complex128, a, b complex128) (coeffs []complex128) {
+func chebyCoeffs(nodes, fi []float64, a, b float64) (coeffs []float64) {
 
-	var u, Tprev, T, Tnext complex128
+	var u, Tprev, T, Tnext float64
 
 	n := len(nodes)
 
-	coeffs = make([]complex128, n)
+	coeffs = make([]float64, n)
 
 	for i := 0; i < n; i++ {
 
@@ -91,9 +81,9 @@ func chebyCoeffs(nodes, fi []complex128, a, b complex128) (coeffs []complex128) 
 		}
 	}
 
-	coeffs[0] /= complex(float64(n), 0)
+	coeffs[0] /= float64(n)
 	for i := 1; i < n; i++ {
-		coeffs[i] *= (2.0 / complex(float64(n), 0))
+		coeffs[i] *= (2.0 / float64(n))
 	}
 
 	return

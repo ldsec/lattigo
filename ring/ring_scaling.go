@@ -16,7 +16,7 @@ type Scaler interface {
 // This implementation of the Scaler interface is preferred over the SimpleScaler implementation.
 type RNSScaler struct {
 	ringQ           *Ring
-	paramsQT        *modupParams
+	paramsQT        *ModUpParams
 	modDownParamsQT uint64
 	polypoolT       *Poly
 
@@ -29,7 +29,7 @@ type RNSScaler struct {
 	bredParamsT []uint64
 	mredParamsT uint64
 
-	paramsQP *modupParams
+	paramsQP *ModUpParams
 }
 
 // NewRNSScaler creates a new SimpleScaler from t, the modulus under which the reconstruction is returned, the Ring in which the polynomial to reconstruct is represented.
@@ -82,7 +82,7 @@ func (rnss *RNSScaler) DivByQOverTRounded(p1Q, p2T *Poly) {
 	ringQ.AddScalarBigint(p1Q, rnss.qHalf, p1Q)
 
 	// Extend the basis of (t*P_{Q} + (Q-1)/2) to (t*P_{t} + (Q-1)/2)
-	modUpExact(p1Q.Coeffs, rnss.polypoolT.Coeffs, rnss.paramsQP)
+	ModUpExact(p1Q.Coeffs, rnss.polypoolT.Coeffs, rnss.paramsQP)
 
 	// Compute [Q^{-1} * (t*P_{t} -   (t*P_{Q} - ((Q-1)/2 mod t)))] mod t which returns round(t/Q * P_{Q}) mod t
 	for j := uint64(0); j < ringQ.N; j = j + 8 {

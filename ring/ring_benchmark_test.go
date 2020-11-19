@@ -33,6 +33,7 @@ func BenchmarkRing(b *testing.B) {
 		benchSampling(testContext, b)
 		benchMontgomery(testContext, b)
 		benchNTT(testContext, b)
+		benchMurakami(testContext, b)
 		benchMulCoeffs(testContext, b)
 		benchAddCoeffs(testContext, b)
 		benchSubCoeffs(testContext, b)
@@ -164,6 +165,28 @@ func benchNTT(testContext *testParams, b *testing.B) {
 	b.Run(testString("NTT/InvNTT/Barrett/", testContext.ringQ), func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			testContext.ringQ.InvNTTBarrett(p, p)
+		}
+	})
+}
+
+func benchMurakami(testContext *testParams, b *testing.B) {
+
+	ringQ := testContext.ringQ
+	if err := ringQ.GenMurakamiParams(); err != nil {
+		panic(err)
+	}
+
+	p := testContext.uniformSamplerQ.ReadNew()
+
+	b.Run(testString("Murakami/Forward/", testContext.ringQ), func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			ringQ.MapXX2NToXNAndMurakami(uint64(len(ringQ.Modulus)-1), p)
+		}
+	})
+
+	b.Run(testString("Murakami/Backward/", testContext.ringQ), func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			ringQ.MapXNToXX2NAndMurakami(uint64(len(ringQ.Modulus)-1), p)
 		}
 	})
 }

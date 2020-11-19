@@ -29,7 +29,25 @@ func chebyshevinterpolation() {
 	rand.Seed(time.Now().UnixNano())
 
 	// Scheme params
-	params := ckks.DefaultParams[ckks.PN14QP438]
+	//params := ckks.DefaultParams[ckks.PN14QP438]
+
+	LogN := uint64(15)
+	LogSlots := uint64(14)
+
+	LogModuli := ckks.LogModuli{
+		LogQi: []uint64{55, 40, 40, 40, 40, 40, 40, 40},
+		LogPi: []uint64{45, 45},
+	}
+
+	Scale := float64(1 << 40)
+
+	params, err := ckks.NewParametersFromLogModuli(LogN, &LogModuli)
+	if err != nil {
+		panic(err)
+	}
+
+	params.SetScale(Scale)
+	params.SetLogSlots(LogSlots)
 
 	encoder := ckks.NewEncoder(params)
 
@@ -67,18 +85,25 @@ func chebyshevinterpolation() {
 	fmt.Println()
 
 	// Plaintext creation and encoding process
-	plaintext := ckks.NewPlaintext(params, params.MaxLevel(), params.Scale())
-	encoder.Encode(plaintext, values, params.Slots())
+	plaintext := encoder.EncodeNew(values, params.LogSlots())
 
 	// Encryption process
 	var ciphertext *ckks.Ciphertext
 	ciphertext = encryptor.EncryptNew(plaintext)
 
-	fmt.Println("Evaluation of the function 1/(exp(-x)+1) in the range [-8, 8] (degree of approximation: 32)")
+	fmt.Println("Evaluation of the function 1/(exp(-x)+1) in the range [-8, 8] (degree of approximation: 63)")
 
 	// Evaluation process
 	// We approximate f(x) in the range [-8, 8] with a Chebyshev interpolant of 33 coefficients (degree 32).
-	chebyapproximation := ckks.Approximate(f, -8, 8, 33)
+	chebyapproximation := ckks.Approximate(f, -8, 8, 63)
+
+	a := chebyapproximation.A()
+	b := chebyapproximation.B()
+
+	// Change of variable
+	evaluator.MultByConst(ciphertext, 2/(b-a), ciphertext)
+	evaluator.AddConst(ciphertext, (-a-b)/(b-a), ciphertext)
+	evaluator.Rescale(ciphertext, params.Scale(), ciphertext)
 
 	// We evaluate the interpolated Chebyshev interpolant on the ciphertext
 	if ciphertext, err = evaluator.EvaluateCheby(ciphertext, chebyapproximation, rlk); err != nil {
@@ -111,9 +136,7 @@ func round(x complex128) complex128 {
 
 func printDebug(params *ckks.Parameters, ciphertext *ckks.Ciphertext, valuesWant []complex128, decryptor ckks.Decryptor, encoder ckks.Encoder) (valuesTest []complex128) {
 
-	slots := uint64(len(valuesWant))
-
-	valuesTest = encoder.Decode(decryptor.DecryptNew(ciphertext), slots)
+	valuesTest = encoder.Decode(decryptor.DecryptNew(ciphertext), params.LogSlots())
 
 	fmt.Println()
 	fmt.Printf("Level: %d (logQ = %d)\n", ciphertext.Level(), params.LogQLvl(ciphertext.Level()))

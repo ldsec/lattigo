@@ -28,24 +28,24 @@ func GenGaloisParams(n, gen uint64) (galElRotCol []uint64) {
 }
 
 // PermuteNTTIndex computes the index table for PermuteNTT.
-func PermuteNTTIndex(gen, power, N uint64) (index []uint64) {
+func PermuteNTTIndex(gen, power, N, NthRoot uint64) (index []uint64) {
 
-	genPow := ModExp(gen, power, 2*N)
+	genPow := ModExp(gen, power, NthRoot)
 
-	var mask, logN, tmp1, tmp2 uint64
+	var mask, logNthRoot, tmp1, tmp2 uint64
 
-	logN = uint64(bits.Len64(N) - 1)
+	logNthRoot = uint64(bits.Len64(NthRoot) - 2)
 
-	mask = (N << 1) - 1
+	mask = NthRoot - 1
 
 	index = make([]uint64, N)
 
 	for i := uint64(0); i < N; i++ {
-		tmp1 = 2*utils.BitReverse64(i, logN) + 1
+		tmp1 = 2*utils.BitReverse64(i, logNthRoot) + 1
 
 		tmp2 = ((genPow * tmp1 & mask) - 1) >> 1
 
-		index[i] = utils.BitReverse64(tmp2, logN)
+		index[i] = utils.BitReverse64(tmp2, logNthRoot)
 	}
 
 	return
@@ -54,25 +54,11 @@ func PermuteNTTIndex(gen, power, N uint64) (index []uint64) {
 // PermuteNTT applies the Galois transform on a polynomial in the NTT domain.
 // It maps the coefficients x^i to x^(gen*i)
 // It must be noted that the result cannot be in-place.
-func PermuteNTT(polIn *Poly, gen uint64, polOut *Poly) {
+func PermuteNTT(polIn *Poly, gen, power, N, NthRoot uint64, polOut *Poly) {
 
-	var N, tmp, mask, logN, tmp1, tmp2 uint64
+	var tmp uint64
 
-	N = uint64(len(polIn.Coeffs[0]))
-
-	logN = uint64(bits.Len64(N) - 1)
-
-	mask = (N << 1) - 1
-
-	index := make([]uint64, N)
-
-	for i := uint64(0); i < N; i++ {
-		tmp1 = 2*utils.BitReverse64(i, logN) + 1
-
-		tmp2 = ((gen * tmp1 & mask) - 1) >> 1
-
-		index[i] = utils.BitReverse64(tmp2, logN)
-	}
+	index := PermuteNTTIndex(gen, power, N, NthRoot)
 
 	for j := uint64(0); j < N; j++ {
 

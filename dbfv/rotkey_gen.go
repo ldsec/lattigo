@@ -13,9 +13,6 @@ import (
 type RTGProtocol struct {
 	context *dbfvContext
 
-	galElRotRow uint64
-	galElRotCol map[bfv.Rotation][]uint64
-
 	tmpSwitchKey    [][2]*ring.Poly
 	tmpPoly         [2]*ring.Poly
 	gaussianSampler *ring.GaussianSampler
@@ -97,21 +94,6 @@ func NewRotKGProtocol(params *bfv.Parameters) (rtg *RTGProtocol) {
 
 	rtg.tmpPoly = [2]*ring.Poly{context.ringQP.NewPoly(), context.ringQP.NewPoly()}
 
-	N := context.n
-
-	rtg.galElRotCol = make(map[bfv.Rotation][]uint64)
-	for _, rotType := range []bfv.Rotation{bfv.RotationLeft, bfv.RotationRight} {
-
-		gen := bfv.GaloisGen
-		if rotType == bfv.RotationRight {
-			gen = ring.ModExp(gen, (N<<1)-1, N<<1)
-		}
-
-		rtg.galElRotCol[rotType] = ring.GenGaloisParams(N, gen)
-
-	}
-
-	rtg.galElRotRow = (N << 1) - 1
 	prng, err := utils.NewPRNG()
 	if err != nil {
 		panic(err)
@@ -128,26 +110,29 @@ func NewRotKGProtocol(params *bfv.Parameters) (rtg *RTGProtocol) {
 //
 // and broadcasts it to the other j-1 parties. The protocol must be repeated for each desired rotation.
 func (rtg *RTGProtocol) GenShare(rotType bfv.Rotation, k uint64, sk *ring.Poly, crp []*ring.Poly, shareOut *RTGShare) {
+
+	ringQP := rtg.context.ringQP
+
 	shareOut.Type = rotType
 	shareOut.K = k
 	switch rotType {
 	case bfv.RotationRight:
-		rtg.genShare(sk, rtg.galElRotCol[bfv.RotationLeft][k&((rtg.context.n>>1)-1)], crp, shareOut.Value)
+		rtg.genShare(sk, bfv.GaloisGen, k&(ringQP.N/2-1), crp, shareOut.Value)
 		return
 	case bfv.RotationLeft:
-		rtg.genShare(sk, rtg.galElRotCol[bfv.RotationRight][k&((rtg.context.n>>1)-1)], crp, shareOut.Value)
+		rtg.genShare(sk, bfv.GaloisGen, (ringQP.N/2-k)&(ringQP.N/2-1), crp, shareOut.Value)
 		return
 	case bfv.RotationRow:
-		rtg.genShare(sk, rtg.galElRotRow, crp, shareOut.Value)
+		rtg.genShare(sk, ringQP.NthRoot-1, 1, crp, shareOut.Value)
 		return
 	}
 }
 
-func (rtg *RTGProtocol) genShare(sk *ring.Poly, galEl uint64, crp []*ring.Poly, evakey []*ring.Poly) {
+func (rtg *RTGProtocol) genShare(sk *ring.Poly, gen, k uint64, crp []*ring.Poly, evakey []*ring.Poly) {
 
 	ringQP := rtg.context.ringQP
 
-	ring.PermuteNTT(sk, galEl, rtg.tmpPoly[1])
+	ring.PermuteNTT(sk, gen, k, ringQP.N, ringQP.NthRoot, rtg.tmpPoly[1])
 
 	ringQP.MulScalarBigint(sk, rtg.context.ringP.ModulusBigint, rtg.tmpPoly[0])
 

@@ -64,8 +64,7 @@ func main() {
 		valuesWant[i] = randomComplex(-1, 1)
 	}
 
-	plaintext = ckks.NewPlaintext(params, params.MaxLevel(), params.Scale())
-	encoder.Encode(plaintext, valuesWant, params.Slots())
+	plaintext = encoder.EncodeNew(valuesWant, params.LogSlots())
 
 	// Encrypt
 	ciphertext1 := encryptor.EncryptNew(plaintext)
@@ -93,9 +92,7 @@ func main() {
 
 func printDebug(params *ckks.Parameters, ciphertext *ckks.Ciphertext, valuesWant []complex128, decryptor ckks.Decryptor, encoder ckks.Encoder) (valuesTest []complex128) {
 
-	slots := uint64(len(valuesWant))
-
-	valuesTest = encoder.Decode(decryptor.DecryptNew(ciphertext), slots)
+	valuesTest = encoder.Decode(decryptor.DecryptNew(ciphertext), params.LogSlots())
 
 	fmt.Println()
 	fmt.Printf("Level: %d (logQ = %d)\n", ciphertext.Level(), params.LogQLvl(ciphertext.Level()))

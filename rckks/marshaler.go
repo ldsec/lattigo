@@ -1,4 +1,4 @@
-package ckks
+package rckks
 
 import (
 	"encoding/binary"
@@ -309,13 +309,6 @@ func (rotationkey *RotationKeys) GetDataLen(WithMetaData bool) (dataLen uint64) 
 		dataLen += rotationkey.evakeyRotColRight[i].GetDataLen(WithMetaData)
 	}
 
-	if rotationkey.evakeyConjugate != nil {
-		if WithMetaData {
-			dataLen += 4
-		}
-		dataLen += rotationkey.evakeyConjugate.GetDataLen(WithMetaData)
-	}
-
 	return
 }
 
@@ -353,14 +346,6 @@ func (rotationkey *RotationKeys) MarshalBinary() (data []byte, err error) {
 		pointer += 4
 
 		pointer, _ = rotationkey.evakeyRotColRight[i].encode(pointer, data)
-	}
-
-	if rotationkey.evakeyConjugate != nil {
-
-		data[pointer] = uint8(Conjugate)
-		pointer += 4
-
-		_, _ = rotationkey.evakeyConjugate.encode(pointer, data)
 	}
 
 	return data, nil
@@ -401,7 +386,7 @@ func (rotationkey *RotationKeys) UnmarshalBinary(data []byte) (err error) {
 
 			N := uint64(len(rotationkey.evakeyRotColLeft[rotationNumber].evakey[0][0].Coeffs[0]))
 
-			rotationkey.permuteNTTLeftIndex[rotationNumber] = ring.PermuteNTTIndex(GaloisGen, rotationNumber, N, 2*N)
+			rotationkey.permuteNTTLeftIndex[rotationNumber] = ring.PermuteNTTIndex(GaloisGen, rotationNumber, N, 4*N)
 
 		} else if rotationType == RotationRight {
 
@@ -420,18 +405,7 @@ func (rotationkey *RotationKeys) UnmarshalBinary(data []byte) (err error) {
 
 			N := uint64(len(rotationkey.evakeyRotColRight[rotationNumber].evakey[0][0].Coeffs[0]))
 
-			rotationkey.permuteNTTRightIndex[rotationNumber] = ring.PermuteNTTIndex(GaloisGen, (2*N)-rotationNumber, N, 2*N)
-
-		} else if rotationType == Conjugate {
-
-			rotationkey.evakeyConjugate = new(SwitchingKey)
-			if inc, err = rotationkey.evakeyConjugate.decode(data[pointer:]); err != nil {
-				return err
-			}
-
-			N := uint64(len(rotationkey.evakeyConjugate.evakey[0][0].Coeffs[0]))
-
-			rotationkey.permuteNTTConjugateIndex = ring.PermuteNTTIndex((2*N)-1, 1, N, 2*N)
+			rotationkey.permuteNTTRightIndex[rotationNumber] = ring.PermuteNTTIndex(GaloisGen, (4*N)-rotationNumber, N, 4*N)
 
 		} else {
 

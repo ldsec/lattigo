@@ -78,7 +78,7 @@ func example() {
 	}
 
 	plaintext := ckks.NewPlaintext(params, params.MaxLevel(), params.Scale()/r)
-	encoder.Encode(plaintext, values, slots)
+	encoder.Encode(plaintext, values, params.LogSlots())
 
 	fmt.Printf("Done in %s \n", time.Since(start))
 
@@ -191,7 +191,7 @@ func example() {
 
 	start = time.Now()
 
-	encoder.Decode(decryptor.DecryptNew(ciphertext), slots)
+	encoder.Decode(decryptor.DecryptNew(ciphertext), params.LogSlots())
 
 	fmt.Printf("Done in %s \n", time.Since(start))
 
@@ -201,9 +201,7 @@ func example() {
 
 func printDebug(params *ckks.Parameters, ciphertext *ckks.Ciphertext, valuesWant []complex128, decryptor ckks.Decryptor, encoder ckks.Encoder) (valuesTest []complex128) {
 
-	slots := uint64(len(valuesWant))
-
-	valuesTest = encoder.Decode(decryptor.DecryptNew(ciphertext), slots)
+	valuesTest = encoder.Decode(decryptor.DecryptNew(ciphertext), params.LogSlots())
 
 	fmt.Println()
 	fmt.Printf("Level: %d (logQ = %d)\n", ciphertext.Level(), params.LogQLvl(ciphertext.Level()))
