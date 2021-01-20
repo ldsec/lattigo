@@ -47,7 +47,7 @@ func NewCKSProtocol(params *ckks.Parameters, sigmaSmudging float64) (cks *CKSPro
 	if err != nil {
 		panic(err)
 	}
-	cks.gaussianSampler = ring.NewGaussianSampler(prng, dckksContext.ringQP, params.Sigma(), uint64(6*params.Sigma()))
+	cks.gaussianSampler = ring.NewGaussianSampler(prng)
 
 	return cks
 }
@@ -79,7 +79,7 @@ func (cks *CKSProtocol) genShareDelta(skDelta *ring.Poly, ct *ckks.Ciphertext, s
 
 	ringQ.MulScalarBigintLvl(ct.Level(), shareOut, ringP.ModulusBigint, shareOut)
 
-	cks.gaussianSampler.ReadLvl(ct.Level(), cks.tmpQ)
+	cks.gaussianSampler.ReadLvl(ct.Level(), cks.tmpQ, cks.dckksContext.ringQP, cks.sigmaSmudging, uint64(6*cks.sigmaSmudging))
 	extendBasisSmallNormAndCenter(ringQ, ringP, cks.tmpQ, cks.tmpP)
 
 	ringQ.NTTLvl(ct.Level(), cks.tmpQ, cks.tmpQ)

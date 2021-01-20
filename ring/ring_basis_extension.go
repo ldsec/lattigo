@@ -14,8 +14,8 @@ type FastBasisExtender struct {
 	ringP           *Ring
 	paramsQP        *modupParams
 	paramsPQ        *modupParams
-	modDownParamsPQ []uint64
-	modDownParamsQP []uint64
+	modDownParamsPQ []FastBRedOperand
+	modDownParamsQP []FastBRedOperand
 	polypoolQ       *Poly
 	polypoolP       *Poly
 }
@@ -26,7 +26,7 @@ type modupParams struct {
 
 	//Parameters for basis extension from Q to P
 	// (Q/Qi)^-1) (mod each Qi) (in Montgomery form)
-	qibMont []uint64
+	qibMont []FastBRedOperand
 	// Q/qi (mod each Pj) (in Montgomery form)
 	qispjMont [][]uint64
 	// Q*v (mod each Pj) for v in [1,...,k] where k is the number of Pj moduli
@@ -39,17 +39,13 @@ type modupParams struct {
 	mredParamsP []uint64
 }
 
-func genModDownParams(ringP, ringQ *Ring) (params []uint64) {
+func genModDownParams(ringP, ringQ *Ring) (params []FastBRedOperand) {
 
-	params = make([]uint64, len(ringP.Modulus))
+	params = make([]FastBRedOperand, len(ringP.Modulus))
 
-	bredParams := ringP.GetBredParams()
 	tmp := new(big.Int)
 	for i, Qi := range ringP.Modulus {
-
-		params[i] = tmp.Mod(ringQ.ModulusBigint, NewUint(Qi)).Uint64()
-		params[i] = ModExp(params[i], Qi-2, Qi)
-		params[i] = MForm(params[i], Qi, bredParams[i])
+		params[i] = NewFastBRedOperand(Qi-ModExp(tmp.Mod(ringQ.ModulusBigint, NewUint(Qi)).Uint64(), Qi-2, Qi), Qi)
 	}
 
 	return
@@ -107,7 +103,7 @@ func basisextenderparameters(Q, P []uint64) (params *modupParams) {
 		modulusbigint.Mul(modulusbigint, NewUint(qi))
 	}
 
-	params.qibMont = make([]uint64, len(Q))
+	params.qibMont = make([]FastBRedOperand, len(Q))
 	params.qispjMont = make([][]uint64, len(P))
 
 	for i := range P {
@@ -122,7 +118,7 @@ func basisextenderparameters(Q, P []uint64) (params *modupParams) {
 		QiBarre.Mod(QiBarre, QiB)
 
 		// (Q/Qi)^-1) * r (mod Qi) (in Montgomery form)
-		params.qibMont[i] = MForm(QiBarre.Uint64(), qi, params.bredParamsQ[i])
+		params.qibMont[i] = NewFastBRedOperand(QiBarre.Uint64(), qi)
 
 		for j, pj := range P {
 			// (Q/qi * r) (mod Pj) (in Montgomery form)
@@ -175,7 +171,7 @@ func (basisextender *FastBasisExtender) ModDownNTTPQ(level uint64, p1, p2 *Poly)
 
 	// First we get the P basis part of p1 out of the NTT domain
 	for j := 0; j < nPj; j++ {
-		InvNTTLazy(p1.Coeffs[nQi+j], p1.Coeffs[nQi+j], ringP.N, ringP.GetNttPsiInv()[j], ringP.GetNttNInv()[j], ringP.Modulus[j], ringP.GetMredParams()[j])
+		InvNTTLazy(p1.Coeffs[nQi+j], p1.Coeffs[nQi+j], ringP.N, ringP.NttPsiInv[j], ringP.NttNInv[j], ringP.Modulus[j])
 	}
 
 	// Then we target this P basis of p1 and convert it to a Q basis (at the "level" of p1) and copy it on polypool
@@ -190,12 +186,11 @@ func (basisextender *FastBasisExtender) ModDownNTTPQ(level uint64, p1, p2 *Poly)
 		p1tmp := p1.Coeffs[i]
 		p2tmp := p2.Coeffs[i]
 		p3tmp := polypool.Coeffs[i]
-		params := qi - modDownParams[i]
-		mredParams := ringQ.MredParams[i]
-		bredParams := ringQ.BredParams[i]
+		params := modDownParams[i]
+		nttpsi := ringQ.NttPsi[i]
 
 		// First we switch back the relevant polypool CRT array back to the NTT domain
-		NTTLazy(p3tmp, p3tmp, ringQ.N, ringQ.GetNttPsi()[i], qi, mredParams, bredParams)
+		NTTLazy(p3tmp, p3tmp, ringQ.N, nttpsi, qi)
 
 		// Then for each coefficient we compute (P^-1) * (p1[i][j] - polypool[i][j]) mod qi
 		for j := uint64(0); j < ringQ.N; j = j + 8 {
@@ -204,14 +199,14 @@ func (basisextender *FastBasisExtender) ModDownNTTPQ(level uint64, p1, p2 *Poly)
 			y := (*[8]uint64)(unsafe.Pointer(&p3tmp[j]))
 			z := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
 
-			z[0] = MRed(y[0]+twoqi-x[0], params, qi, mredParams)
-			z[1] = MRed(y[1]+twoqi-x[1], params, qi, mredParams)
-			z[2] = MRed(y[2]+twoqi-x[2], params, qi, mredParams)
-			z[3] = MRed(y[3]+twoqi-x[3], params, qi, mredParams)
-			z[4] = MRed(y[4]+twoqi-x[4], params, qi, mredParams)
-			z[5] = MRed(y[5]+twoqi-x[5], params, qi, mredParams)
-			z[6] = MRed(y[6]+twoqi-x[6], params, qi, mredParams)
-			z[7] = MRed(y[7]+twoqi-x[7], params, qi, mredParams)
+			z[0] = FastBRed(y[0]+twoqi-x[0], params, qi)
+			z[1] = FastBRed(y[1]+twoqi-x[1], params, qi)
+			z[2] = FastBRed(y[2]+twoqi-x[2], params, qi)
+			z[3] = FastBRed(y[3]+twoqi-x[3], params, qi)
+			z[4] = FastBRed(y[4]+twoqi-x[4], params, qi)
+			z[5] = FastBRed(y[5]+twoqi-x[5], params, qi)
+			z[6] = FastBRed(y[6]+twoqi-x[6], params, qi)
+			z[7] = FastBRed(y[7]+twoqi-x[7], params, qi)
 		}
 	}
 
@@ -245,12 +240,11 @@ func (basisextender *FastBasisExtender) ModDownSplitNTTPQ(level uint64, p1Q, p1P
 		p1tmp := p1Q.Coeffs[i]
 		p2tmp := p2.Coeffs[i]
 		p3tmp := polypool.Coeffs[i]
-		params := qi - modDownParams[i]
-		mredParams := ringQ.MredParams[i]
-		bredParams := ringQ.BredParams[i]
+		params := modDownParams[i]
+		nttpsi := ringQ.NttPsi[i]
 
 		// First we switch back the relevant polypool CRT array back to the NTT domain
-		NTTLazy(p3tmp, p3tmp, ringQ.N, ringQ.GetNttPsi()[i], ringQ.Modulus[i], mredParams, bredParams)
+		NTTLazy(p3tmp, p3tmp, ringQ.N, nttpsi, qi)
 
 		// Then for each coefficient we compute (P^-1) * (p1[i][j] - polypool[i][j]) mod qi
 		for j := uint64(0); j < ringQ.N; j = j + 8 {
@@ -259,14 +253,14 @@ func (basisextender *FastBasisExtender) ModDownSplitNTTPQ(level uint64, p1Q, p1P
 			y := (*[8]uint64)(unsafe.Pointer(&p3tmp[j]))
 			z := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
 
-			z[0] = MRed(y[0]+twoqi-x[0], params, qi, mredParams)
-			z[1] = MRed(y[1]+twoqi-x[1], params, qi, mredParams)
-			z[2] = MRed(y[2]+twoqi-x[2], params, qi, mredParams)
-			z[3] = MRed(y[3]+twoqi-x[3], params, qi, mredParams)
-			z[4] = MRed(y[4]+twoqi-x[4], params, qi, mredParams)
-			z[5] = MRed(y[5]+twoqi-x[5], params, qi, mredParams)
-			z[6] = MRed(y[6]+twoqi-x[6], params, qi, mredParams)
-			z[7] = MRed(y[7]+twoqi-x[7], params, qi, mredParams)
+			z[0] = FastBRed(y[0]+twoqi-x[0], params, qi)
+			z[1] = FastBRed(y[1]+twoqi-x[1], params, qi)
+			z[2] = FastBRed(y[2]+twoqi-x[2], params, qi)
+			z[3] = FastBRed(y[3]+twoqi-x[3], params, qi)
+			z[4] = FastBRed(y[4]+twoqi-x[4], params, qi)
+			z[5] = FastBRed(y[5]+twoqi-x[5], params, qi)
+			z[6] = FastBRed(y[6]+twoqi-x[6], params, qi)
+			z[7] = FastBRed(y[7]+twoqi-x[7], params, qi)
 		}
 	}
 
@@ -296,8 +290,7 @@ func (basisextender *FastBasisExtender) ModDownPQ(level uint64, p1, p2 *Poly) {
 		p1tmp := p1.Coeffs[i]
 		p2tmp := p2.Coeffs[i]
 		p3tmp := polypool.Coeffs[i]
-		params := qi - modDownParams[i]
-		mredParams := ringQ.MredParams[i]
+		params := modDownParams[i]
 
 		// Then for each coefficient we compute (P^-1) * (p1[i][j] - polypool[i][j]) mod qi
 		for j := uint64(0); j < ringQ.N; j = j + 8 {
@@ -306,14 +299,14 @@ func (basisextender *FastBasisExtender) ModDownPQ(level uint64, p1, p2 *Poly) {
 			y := (*[8]uint64)(unsafe.Pointer(&p3tmp[j]))
 			z := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
 
-			z[0] = MRed(y[0]+twoqi-x[0], params, qi, mredParams)
-			z[1] = MRed(y[1]+twoqi-x[1], params, qi, mredParams)
-			z[2] = MRed(y[2]+twoqi-x[2], params, qi, mredParams)
-			z[3] = MRed(y[3]+twoqi-x[3], params, qi, mredParams)
-			z[4] = MRed(y[4]+twoqi-x[4], params, qi, mredParams)
-			z[5] = MRed(y[5]+twoqi-x[5], params, qi, mredParams)
-			z[6] = MRed(y[6]+twoqi-x[6], params, qi, mredParams)
-			z[7] = MRed(y[7]+twoqi-x[7], params, qi, mredParams)
+			z[0] = FastBRed(y[0]+twoqi-x[0], params, qi)
+			z[1] = FastBRed(y[1]+twoqi-x[1], params, qi)
+			z[2] = FastBRed(y[2]+twoqi-x[2], params, qi)
+			z[3] = FastBRed(y[3]+twoqi-x[3], params, qi)
+			z[4] = FastBRed(y[4]+twoqi-x[4], params, qi)
+			z[5] = FastBRed(y[5]+twoqi-x[5], params, qi)
+			z[6] = FastBRed(y[6]+twoqi-x[6], params, qi)
+			z[7] = FastBRed(y[7]+twoqi-x[7], params, qi)
 		}
 	}
 
@@ -342,8 +335,7 @@ func (basisextender *FastBasisExtender) ModDownSplitPQ(level uint64, p1Q, p1P, p
 		p1tmp := p1Q.Coeffs[i]
 		p2tmp := p2.Coeffs[i]
 		p3tmp := polypool.Coeffs[i]
-		params := qi - modDownParams[i]
-		mredParams := ringQ.MredParams[i]
+		params := modDownParams[i]
 
 		// Then for each coefficient we compute (P^-1) * (p1[i][j] - polypool[i][j]) mod qi
 		for j := uint64(0); j < ringQ.N; j = j + 8 {
@@ -352,14 +344,14 @@ func (basisextender *FastBasisExtender) ModDownSplitPQ(level uint64, p1Q, p1P, p
 			y := (*[8]uint64)(unsafe.Pointer(&p3tmp[j]))
 			z := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
 
-			z[0] = MRed(y[0]+twoqi-x[0], params, qi, mredParams)
-			z[1] = MRed(y[1]+twoqi-x[1], params, qi, mredParams)
-			z[2] = MRed(y[2]+twoqi-x[2], params, qi, mredParams)
-			z[3] = MRed(y[3]+twoqi-x[3], params, qi, mredParams)
-			z[4] = MRed(y[4]+twoqi-x[4], params, qi, mredParams)
-			z[5] = MRed(y[5]+twoqi-x[5], params, qi, mredParams)
-			z[6] = MRed(y[6]+twoqi-x[6], params, qi, mredParams)
-			z[7] = MRed(y[7]+twoqi-x[7], params, qi, mredParams)
+			z[0] = FastBRed(y[0]+twoqi-x[0], params, qi)
+			z[1] = FastBRed(y[1]+twoqi-x[1], params, qi)
+			z[2] = FastBRed(y[2]+twoqi-x[2], params, qi)
+			z[3] = FastBRed(y[3]+twoqi-x[3], params, qi)
+			z[4] = FastBRed(y[4]+twoqi-x[4], params, qi)
+			z[5] = FastBRed(y[5]+twoqi-x[5], params, qi)
+			z[6] = FastBRed(y[6]+twoqi-x[6], params, qi)
+			z[7] = FastBRed(y[7]+twoqi-x[7], params, qi)
 		}
 	}
 
@@ -388,8 +380,7 @@ func (basisextender *FastBasisExtender) ModDownSplitQP(levelQ, levelP uint64, p1
 		p1tmp := p1P.Coeffs[i]
 		p2tmp := p2.Coeffs[i]
 		p3tmp := polypool.Coeffs[i]
-		params := qi - modDownParams[i]
-		mredParams := ringP.MredParams[i]
+		params := modDownParams[i]
 
 		// Then for each coefficient we compute (P^-1) * (p1[i][j] - polypool[i][j]) mod qi
 		for j := uint64(0); j < ringP.N; j = j + 8 {
@@ -398,14 +389,14 @@ func (basisextender *FastBasisExtender) ModDownSplitQP(levelQ, levelP uint64, p1
 			y := (*[8]uint64)(unsafe.Pointer(&p3tmp[j]))
 			z := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
 
-			z[0] = MRed(y[0]+twoqi-x[0], params, qi, mredParams)
-			z[1] = MRed(y[1]+twoqi-x[1], params, qi, mredParams)
-			z[2] = MRed(y[2]+twoqi-x[2], params, qi, mredParams)
-			z[3] = MRed(y[3]+twoqi-x[3], params, qi, mredParams)
-			z[4] = MRed(y[4]+twoqi-x[4], params, qi, mredParams)
-			z[5] = MRed(y[5]+twoqi-x[5], params, qi, mredParams)
-			z[6] = MRed(y[6]+twoqi-x[6], params, qi, mredParams)
-			z[7] = MRed(y[7]+twoqi-x[7], params, qi, mredParams)
+			z[0] = FastBRed(y[0]+twoqi-x[0], params, qi)
+			z[1] = FastBRed(y[1]+twoqi-x[1], params, qi)
+			z[2] = FastBRed(y[2]+twoqi-x[2], params, qi)
+			z[3] = FastBRed(y[3]+twoqi-x[3], params, qi)
+			z[4] = FastBRed(y[4]+twoqi-x[4], params, qi)
+			z[5] = FastBRed(y[5]+twoqi-x[5], params, qi)
+			z[6] = FastBRed(y[6]+twoqi-x[6], params, qi)
+			z[7] = FastBRed(y[7]+twoqi-x[7], params, qi)
 		}
 	}
 
@@ -421,7 +412,7 @@ func modUpExact(p1, p2 [][]uint64, params *modupParams) {
 	// We loop over each coefficient and apply the basis extension
 	for x := uint64(0); x < uint64(len(p1[0])); x = x + 8 {
 
-		reconstructRNS(uint64(len(p1)), x, p1, &v, &y0, &y1, &y2, &y3, &y4, &y5, &y6, &y7, params.Q, params.mredParamsQ, params.qibMont)
+		reconstructRNS(uint64(len(p1)), x, p1, &v, &y0, &y1, &y2, &y3, &y4, &y5, &y6, &y7, params.Q, params.qibMont)
 
 		for j := 0; j < len(p2); j++ {
 
@@ -551,7 +542,8 @@ func (decomposer *Decomposer) DecomposeAndSplit(level, crtDecompLevel uint64, p0
 		var v [8]uint64
 		var vi [8]float64
 		var y0, y1, y2, y3, y4, y5, y6, y7 [32]uint64
-		var qibMont, qi, pj, mredParams uint64
+		var qibMont FastBRedOperand
+		var qi, pj uint64
 		var qif float64
 
 		// We loop over each coefficient and apply the basis extension
@@ -564,7 +556,6 @@ func (decomposer *Decomposer) DecomposeAndSplit(level, crtDecompLevel uint64, p0
 
 				qibMont = params.qibMont[i]
 				qi = params.Q[i]
-				mredParams = params.mredParamsQ[i]
 				qif = float64(qi)
 
 				px := (*[8]uint64)(unsafe.Pointer(&p0.Coeffs[j][x]))
@@ -573,14 +564,14 @@ func (decomposer *Decomposer) DecomposeAndSplit(level, crtDecompLevel uint64, p0
 				// For the coefficients to be decomposed, we can simply copy them
 				py[0], py[1], py[2], py[3], py[4], py[5], py[6], py[7] = px[0], px[1], px[2], px[3], px[4], px[5], px[6], px[7]
 
-				y0[i] = MRed(px[0], qibMont, qi, mredParams)
-				y1[i] = MRed(px[1], qibMont, qi, mredParams)
-				y2[i] = MRed(px[2], qibMont, qi, mredParams)
-				y3[i] = MRed(px[3], qibMont, qi, mredParams)
-				y4[i] = MRed(px[4], qibMont, qi, mredParams)
-				y5[i] = MRed(px[5], qibMont, qi, mredParams)
-				y6[i] = MRed(px[6], qibMont, qi, mredParams)
-				y7[i] = MRed(px[7], qibMont, qi, mredParams)
+				y0[i] = FastBRed(px[0], qibMont, qi)
+				y1[i] = FastBRed(px[1], qibMont, qi)
+				y2[i] = FastBRed(px[2], qibMont, qi)
+				y3[i] = FastBRed(px[3], qibMont, qi)
+				y4[i] = FastBRed(px[4], qibMont, qi)
+				y5[i] = FastBRed(px[5], qibMont, qi)
+				y6[i] = FastBRed(px[6], qibMont, qi)
+				y7[i] = FastBRed(px[7], qibMont, qi)
 
 				// Computation of the correction term v * Q%pi
 				vi[0] += float64(y0[i]) / qif
@@ -645,27 +636,27 @@ func (decomposer *Decomposer) DecomposeAndSplit(level, crtDecompLevel uint64, p0
 	}
 }
 
-func reconstructRNS(index, x uint64, p [][]uint64, v *[8]uint64, y0, y1, y2, y3, y4, y5, y6, y7 *[32]uint64, Q, QInv, QbMont []uint64) {
+func reconstructRNS(index, x uint64, p [][]uint64, v *[8]uint64, y0, y1, y2, y3, y4, y5, y6, y7 *[32]uint64, Q []uint64, QbMont []FastBRedOperand) {
 
 	var vi [8]float64
-	var qi, qiInv, qibMont uint64
+	var qi uint64
+	var qibMont FastBRedOperand
 	var qif float64
 
 	for i := uint64(0); i < index; i++ {
 
 		qibMont = QbMont[i]
 		qi = Q[i]
-		qiInv = QInv[i]
 		qif = float64(qi)
 
-		y0[i] = MRed(p[i][x+0], qibMont, qi, qiInv)
-		y1[i] = MRed(p[i][x+1], qibMont, qi, qiInv)
-		y2[i] = MRed(p[i][x+2], qibMont, qi, qiInv)
-		y3[i] = MRed(p[i][x+3], qibMont, qi, qiInv)
-		y4[i] = MRed(p[i][x+4], qibMont, qi, qiInv)
-		y5[i] = MRed(p[i][x+5], qibMont, qi, qiInv)
-		y6[i] = MRed(p[i][x+6], qibMont, qi, qiInv)
-		y7[i] = MRed(p[i][x+7], qibMont, qi, qiInv)
+		y0[i] = FastBRed(p[i][x+0], qibMont, qi)
+		y1[i] = FastBRed(p[i][x+1], qibMont, qi)
+		y2[i] = FastBRed(p[i][x+2], qibMont, qi)
+		y3[i] = FastBRed(p[i][x+3], qibMont, qi)
+		y4[i] = FastBRed(p[i][x+4], qibMont, qi)
+		y5[i] = FastBRed(p[i][x+5], qibMont, qi)
+		y6[i] = FastBRed(p[i][x+6], qibMont, qi)
+		y7[i] = FastBRed(p[i][x+7], qibMont, qi)
 
 		// Computation of the correction term v * Q%pi
 		vi[0] += float64(y0[i]) / qif

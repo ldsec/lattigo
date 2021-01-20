@@ -94,7 +94,7 @@ func NewPCKSProtocol(params *bfv.Parameters, sigmaSmudging float64) *PCKSProtoco
 	if err != nil {
 		panic(err)
 	}
-	pcks.gaussianSampler = ring.NewGaussianSampler(prng, context.ringQP, sigmaSmudging, uint64(6*sigmaSmudging))
+	pcks.gaussianSampler = ring.NewGaussianSampler(prng)
 	pcks.ternarySamplerMontgomery = ring.NewTernarySampler(prng, context.ringQP, 0.5, true)
 
 	return pcks
@@ -129,10 +129,10 @@ func (pcks *PCKSProtocol) GenShare(sk *ring.Poly, pk *bfv.PublicKey, ct *bfv.Cip
 	contextKeys.InvNTTLazy(pcks.share1tmp, pcks.share1tmp)
 
 	// h_0 = u_i * pk_0 + e0
-	pcks.gaussianSampler.ReadAndAdd(pcks.share0tmp)
+	pcks.gaussianSampler.ReadAndAdd(pcks.share0tmp, contextKeys, pcks.sigmaSmudging, uint64(6*pcks.sigmaSmudging))
 
 	// h_1 = u_i * pk_1 + e1
-	pcks.gaussianSampler.ReadAndAdd(pcks.share1tmp)
+	pcks.gaussianSampler.ReadAndAdd(pcks.share1tmp, contextKeys, pcks.sigmaSmudging, uint64(6*pcks.sigmaSmudging))
 
 	// h_0 = (u_i * pk_0 + e0)/P
 	pcks.baseconverter.ModDownPQ(uint64(len(ringQ.Modulus))-1, pcks.share0tmp, shareOut[0])

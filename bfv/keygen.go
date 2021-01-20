@@ -100,7 +100,7 @@ func NewKeyGenerator(params *Parameters) KeyGenerator {
 		ringQP:          ringQP,
 		pBigInt:         pBigInt,
 		polypool:        [2]*ring.Poly{ringQP.NewPoly(), ringQP.NewPoly()},
-		gaussianSampler: ring.NewGaussianSampler(prng, ringQP, params.Sigma(), uint64(6*params.Sigma())),
+		gaussianSampler: ring.NewGaussianSampler(prng),
 		uniformSampler:  ring.NewUniformSampler(prng, ringQP),
 	}
 }
@@ -152,7 +152,7 @@ func (keygen *keyGenerator) GenPublicKey(sk *SecretKey) (pk *PublicKey) {
 	//pk[0] = [-(a*s + e)]
 	//pk[1] = [a]
 
-	pk.pk[0] = keygen.gaussianSampler.ReadNew()
+	pk.pk[0] = keygen.gaussianSampler.ReadNew(ringQP, keygen.params.Sigma(), uint64(6*keygen.params.Sigma()))
 	ringQP.NTT(pk.pk[0], pk.pk[0])
 	pk.pk[1] = keygen.uniformSampler.ReadNew()
 
@@ -437,7 +437,7 @@ func (keygen *keyGenerator) newSwitchingKey(skIn, skOut *ring.Poly) (switchingke
 	for i := uint64(0); i < beta; i++ {
 
 		// e
-		switchingkey.evakey[i][0] = keygen.gaussianSampler.ReadNew()
+		switchingkey.evakey[i][0] = keygen.gaussianSampler.ReadNew(ringQP, keygen.params.Sigma(), uint64(6*keygen.params.Sigma()))
 		ringQP.NTTLazy(switchingkey.evakey[i][0], switchingkey.evakey[i][0])
 		ringQP.MForm(switchingkey.evakey[i][0], switchingkey.evakey[i][0])
 		// a

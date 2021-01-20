@@ -14,6 +14,7 @@ type RefreshProtocol struct {
 	tmp             *ring.Poly
 	maskBigint      []*big.Int
 	gaussianSampler *ring.GaussianSampler
+	sigma           float64
 }
 
 // RefreshShareDecrypt is a struct storing the masked decryption share.
@@ -34,7 +35,7 @@ func NewRefreshProtocol(params *ckks.Parameters) (refreshProtocol *RefreshProtoc
 	if err != nil {
 		panic(err)
 	}
-	refreshProtocol.gaussianSampler = ring.NewGaussianSampler(prng, dckksContext.ringQ, params.Sigma(), uint64(6*params.Sigma()))
+	refreshProtocol.gaussianSampler = ring.NewGaussianSampler(prng)
 
 	return
 }
@@ -85,12 +86,12 @@ func (refreshProtocol *RefreshProtocol) GenShares(sk *ring.Poly, levelStart, nPa
 	ringQ.MulCoeffsMontgomeryAndAdd(sk, crs, shareRecrypt)
 
 	// h0 = sk*c1 + mask + e0
-	refreshProtocol.gaussianSampler.Read(refreshProtocol.tmp)
-	ringQ.NTT(refreshProtocol.tmp, refreshProtocol.tmp)
+	refreshProtocol.gaussianSampler.ReadLvl(levelStart, refreshProtocol.tmp, ringQ, refreshProtocol.sigma, uint64(6*refreshProtocol.sigma))
+	ringQ.NTTLvl(levelStart, refreshProtocol.tmp, refreshProtocol.tmp)
 	ringQ.AddLvl(levelStart, shareDecrypt, refreshProtocol.tmp, shareDecrypt)
 
 	// h1 = sk*a + mask + e1
-	refreshProtocol.gaussianSampler.Read(refreshProtocol.tmp)
+	refreshProtocol.gaussianSampler.Read(refreshProtocol.tmp, ringQ, refreshProtocol.sigma, uint64(6*refreshProtocol.sigma))
 	ringQ.NTT(refreshProtocol.tmp, refreshProtocol.tmp)
 	ringQ.Add(shareRecrypt, refreshProtocol.tmp, shareRecrypt)
 

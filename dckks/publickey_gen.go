@@ -11,6 +11,7 @@ import (
 type CKGProtocol struct {
 	dckksContext    *dckksContext
 	gaussianSampler *ring.GaussianSampler
+	sigma           float64
 }
 
 // CKGShare is a struct storing the CKG protocol's share.
@@ -25,7 +26,8 @@ func NewCKGProtocol(params *ckks.Parameters) *CKGProtocol {
 	if err != nil {
 		panic(err)
 	}
-	ckg.gaussianSampler = ring.NewGaussianSampler(prng, ckg.dckksContext.ringQP, params.Sigma(), uint64(6*params.Sigma()))
+	ckg.gaussianSampler = ring.NewGaussianSampler(prng)
+	ckg.sigma = params.Sigma()
 	return ckg
 }
 
@@ -42,7 +44,7 @@ func (ckg *CKGProtocol) AllocateShares() CKGShare {
 func (ckg *CKGProtocol) GenShare(sk *ring.Poly, crs *ring.Poly, shareOut CKGShare) {
 	ringQP := ckg.dckksContext.ringQP
 
-	ckg.gaussianSampler.Read(shareOut)
+	ckg.gaussianSampler.Read(shareOut, ringQP, ckg.sigma, uint64(6*ckg.sigma))
 	ringQP.NTT(shareOut, shareOut)
 	ringQP.MulCoeffsMontgomeryAndSub(sk, crs, shareOut)
 }

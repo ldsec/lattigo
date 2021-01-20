@@ -27,7 +27,6 @@ func BenchmarkDCKKS(b *testing.B) {
 
 		benchPublicKeyGen(testCtx, b)
 		benchRelinKeyGen(testCtx, b)
-		benchRelinKeyGenNaive(testCtx, b)
 		benchKeySwitching(testCtx, b)
 		benchPublicKeySwitching(testCtx, b)
 		benchRotKeyGen(testCtx, b)
@@ -124,52 +123,6 @@ func benchRelinKeyGen(testCtx *testContext, b *testing.B) {
 		}
 	})
 
-}
-
-func benchRelinKeyGenNaive(testCtx *testContext, b *testing.B) {
-
-	pk0 := testCtx.pk0
-	sk0Shards := testCtx.sk0Shards
-
-	type Party struct {
-		*RKGProtocolNaive
-		s      *ring.Poly
-		share1 RKGNaiveShareRoundOne
-		share2 RKGNaiveShareRoundTwo
-	}
-
-	p := new(Party)
-	p.RKGProtocolNaive = NewRKGProtocolNaive(testCtx.params)
-	p.s = sk0Shards[0].Get()
-	p.share1, p.share2 = p.AllocateShares()
-
-	b.Run(testString("RelinKeyGenNaive/Round1Gen/", parties, testCtx.params), func(b *testing.B) {
-
-		for i := 0; i < b.N; i++ {
-			p.GenShareRoundOne(p.s, pk0.Get(), p.share1)
-		}
-	})
-
-	b.Run(testString("RelinKeyGenNaive/Round1Agg/", parties, testCtx.params), func(b *testing.B) {
-
-		for i := 0; i < b.N; i++ {
-			p.AggregateShareRoundOne(p.share1, p.share1, p.share1)
-		}
-	})
-
-	b.Run(testString("RelinKeyGenNaive/Round2Gen/", parties, testCtx.params), func(b *testing.B) {
-
-		for i := 0; i < b.N; i++ {
-			p.GenShareRoundTwo(p.share1, p.s, pk0.Get(), p.share2)
-		}
-	})
-
-	b.Run(testString("RelinKeyGenNaive/Round2Agg/", parties, testCtx.params), func(b *testing.B) {
-
-		for i := 0; i < b.N; i++ {
-			p.AggregateShareRoundTwo(p.share2, p.share2, p.share2)
-		}
-	})
 }
 
 func benchKeySwitching(testCtx *testContext, b *testing.B) {

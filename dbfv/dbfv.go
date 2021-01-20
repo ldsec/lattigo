@@ -12,7 +12,7 @@ type dbfvContext struct {
 	n uint64
 
 	// floor(Q/T) mod each Qi in Montgomery form
-	deltaMont []uint64
+	deltaMont []ring.FastBRedOperand
 
 	// Polynomial contexts
 	ringT  *ring.Ring

@@ -35,15 +35,15 @@ type Ring struct {
 	BredParams [][]uint64
 	MredParams []uint64
 
-	RescaleParams [][]uint64
+	RescaleParams [][]FastBRedOperand
 
 	//NTT Parameters
 	PsiMont    []uint64 //2N-th primitive root in Montgomery form
 	PsiInvMont []uint64 //2N-th inverse primitive root in Montgomery form
 
-	NttPsi    [][]uint64 //powers of the inverse of the 2N-th primitive root in Montgomery form (in bit-reversed order)
-	NttPsiInv [][]uint64 //powers of the inverse of the 2N-th primitive root in Montgomery form (in bit-reversed order)
-	NttNInv   []uint64   //[N^-1] mod Qi in Montgomery form
+	NttPsi    [][]FastBRedOperand
+	NttPsiInv [][]FastBRedOperand
+	NttNInv   []FastBRedOperand
 }
 
 // NewRing creates a new RNS Ring with degree N and coefficient moduli Moduli. N must be a power of two larger than 8. Moduli should be
@@ -136,34 +136,34 @@ func (r *Ring) genNTTParams() error {
 		}
 	}
 
-	r.RescaleParams = make([][]uint64, len(r.Modulus)-1)
+	r.RescaleParams = make([][]FastBRedOperand, len(r.Modulus)-1)
 
 	for j := len(r.Modulus) - 1; j > 0; j-- {
 
-		r.RescaleParams[j-1] = make([]uint64, j)
+		r.RescaleParams[j-1] = make([]FastBRedOperand, j)
 
 		for i := 0; i < j; i++ {
 
-			r.RescaleParams[j-1][i] = MForm(ModExp(r.Modulus[j], r.Modulus[i]-2, r.Modulus[i]), r.Modulus[i], r.BredParams[i])
+			r.RescaleParams[j-1][i] = NewFastBRedOperand(r.Modulus[i]-ModExp(r.Modulus[j], r.Modulus[i]-2, r.Modulus[i]), r.Modulus[i])
 		}
 	}
 
 	r.PsiMont = make([]uint64, len(r.Modulus))
 	r.PsiInvMont = make([]uint64, len(r.Modulus))
-	r.NttPsi = make([][]uint64, len(r.Modulus))
-	r.NttPsiInv = make([][]uint64, len(r.Modulus))
-	r.NttNInv = make([]uint64, len(r.Modulus))
+	r.NttPsi = make([][]FastBRedOperand, len(r.Modulus))
+	r.NttPsiInv = make([][]FastBRedOperand, len(r.Modulus))
+	r.NttNInv = make([]FastBRedOperand, len(r.Modulus))
 
 	bitLenofN := uint64(bits.Len64(r.N) - 1)
 
 	for i, qi := range r.Modulus {
 
 		// 1.1 Compute N^(-1) mod Q in Montgomery form
-		r.NttNInv[i] = MForm(ModExp(r.N, qi-2, qi), qi, r.BredParams[i])
+		r.NttNInv[i] = NewFastBRedOperand(ModExp(r.N, qi-2, qi), qi)
 
 		// 1.2 Compute Psi and PsiInv in Montgomery form
-		r.NttPsi[i] = make([]uint64, r.N)
-		r.NttPsiInv[i] = make([]uint64, r.N)
+		r.NttPsi[i] = make([]FastBRedOperand, r.N)
+		r.NttPsiInv[i] = make([]FastBRedOperand, r.N)
 
 		// Finds a 2N-th primitive Root
 		g := primitiveRoot(qi)
@@ -174,14 +174,15 @@ func (r *Ring) genNTTParams() error {
 		powerInv := (qi - 1) - power
 
 		// Computes Psi and PsiInv in Montgomery form
+
 		PsiMont := MForm(ModExp(g, power, qi), qi, r.BredParams[i])
 		PsiInvMont := MForm(ModExp(g, powerInv, qi), qi, r.BredParams[i])
 
 		r.PsiMont[i] = PsiMont
 		r.PsiInvMont[i] = PsiInvMont
 
-		r.NttPsi[i][0] = MForm(1, qi, r.BredParams[i])
-		r.NttPsiInv[i][0] = MForm(1, qi, r.BredParams[i])
+		r.NttPsi[i][0] = NewFastBRedOperand(1, qi)
+		r.NttPsiInv[i][0] = NewFastBRedOperand(1, qi)
 
 		// Compute nttPsi[j] = nttPsi[j-1]*Psi and nttPsiInv[j] = nttPsiInv[j-1]*PsiInv
 		for j := uint64(1); j < r.N; j++ {
@@ -189,8 +190,9 @@ func (r *Ring) genNTTParams() error {
 			indexReversePrev := utils.BitReverse64(j-1, bitLenofN)
 			indexReverseNext := utils.BitReverse64(j, bitLenofN)
 
-			r.NttPsi[i][indexReverseNext] = MRed(r.NttPsi[i][indexReversePrev], PsiMont, qi, r.MredParams[i])
-			r.NttPsiInv[i][indexReverseNext] = MRed(r.NttPsiInv[i][indexReversePrev], PsiInvMont, qi, r.MredParams[i])
+			r.NttPsi[i][indexReverseNext] = NewFastBRedOperand(MRed(r.NttPsi[i][indexReversePrev].Operand, PsiMont, qi, r.MredParams[i]), qi)
+			r.NttPsiInv[i][indexReverseNext] = NewFastBRedOperand(MRed(r.NttPsiInv[i][indexReversePrev].Operand, PsiInvMont, qi, r.MredParams[i]), qi)
+
 		}
 	}
 
@@ -242,41 +244,6 @@ func (r *Ring) UnmarshalBinary(data []byte) error {
 // AllowsNTT returns true if the ring allows NTT, and false otherwise.
 func (r *Ring) AllowsNTT() bool {
 	return r.allowsNTT
-}
-
-// GetBredParams returns the Barret reduction parameters of the Ring.
-func (r *Ring) GetBredParams() [][]uint64 {
-	return r.BredParams
-}
-
-// GetMredParams returns the Montgomery reduction parameters of the Ring.
-func (r *Ring) GetMredParams() []uint64 {
-	return r.MredParams
-}
-
-// GetPsi returns the primitive root used to compute the NTT parameters of the Ring.
-func (r *Ring) GetPsi() []uint64 {
-	return r.PsiMont
-}
-
-// GetPsiInv returns the primitive root used to compute the InvNTT parameters of the Ring.
-func (r *Ring) GetPsiInv() []uint64 {
-	return r.PsiInvMont
-}
-
-// GetNttPsi returns the NTT parameters of the Ring.
-func (r *Ring) GetNttPsi() [][]uint64 {
-	return r.NttPsi
-}
-
-// GetNttPsiInv returns the InvNTT parameters of the Ring.
-func (r *Ring) GetNttPsiInv() [][]uint64 {
-	return r.NttPsiInv
-}
-
-// GetNttNInv returns 1/N mod each modulus.
-func (r *Ring) GetNttNInv() []uint64 {
-	return r.NttNInv
 }
 
 // NewPoly creates a new polynomial with all coefficients set to 0.

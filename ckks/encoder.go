@@ -7,6 +7,7 @@ import (
 	"math/big"
 
 	"github.com/ldsec/lattigo/v2/ring"
+	"github.com/ldsec/lattigo/v2/utils"
 )
 
 // GaloisGen is an integer of order N/2 modulo M and that spans Z_M with the integer -1.
@@ -24,11 +25,16 @@ type Encoder interface {
 	EncodeNTTNew(values []complex128, logSlots uint64) (plaintext *Plaintext)
 	EncodeNTTAtLvlNew(level uint64, values []complex128, logSlots uint64) (plaintext *Plaintext)
 	Decode(plaintext *Plaintext, logSlots uint64) (res []complex128)
+	DecodePublic(plaintext *Plaintext, logSlots uint64, sigma float64) []complex128
 	Embed(values []complex128, logSlots uint64)
 	ScaleUp(pol *ring.Poly, scale float64, moduli []uint64)
 	WipeInternalMemory()
 	EncodeCoeffs(values []float64, plaintext *Plaintext)
 	DecodeCoeffs(plaintext *Plaintext) (res []float64)
+	DecodeCoeffsPublic(plaintext *Plaintext, bound float64) (res []float64)
+
+	GetErrSTDTimeDom(valuesWant, valuesHave []complex128, scale float64) (std float64)
+	GetErrSTDFreqDom(valuesWant, valuesHave []complex128, scale float64) (std float64)
 }
 
 // EncoderBigComplex is an interface implenting the encoding algorithms with arbitrary precision.
@@ -56,6 +62,8 @@ type encoder struct {
 	polypool     *ring.Poly
 	m            uint64
 	rotGroup     []uint64
+
+	gaussianSampler *ring.GaussianSampler
 }
 
 type encoderComplex128 struct {
@@ -83,15 +91,23 @@ func newEncoder(params *Parameters) encoder {
 		fivePows &= (m - 1)
 	}
 
+	prng, err := utils.NewPRNG()
+	if err != nil {
+		panic(err)
+	}
+
+	gaussianSampler := ring.NewGaussianSampler(prng)
+
 	return encoder{
-		params:       params.Copy(),
-		ringQ:        q,
-		bigintChain:  genBigIntChain(params.qi),
-		bigintCoeffs: make([]*big.Int, m>>1),
-		qHalf:        ring.NewUint(0),
-		polypool:     q.NewPoly(),
-		m:            m,
-		rotGroup:     rotGroup,
+		params:          params.Copy(),
+		ringQ:           q,
+		bigintChain:     genBigIntChain(params.qi),
+		bigintCoeffs:    make([]*big.Int, m>>1),
+		qHalf:           ring.NewUint(0),
+		polypool:        q.NewPoly(),
+		m:               m,
+		rotGroup:        rotGroup,
+		gaussianSampler: gaussianSampler,
 	}
 }
 
@@ -173,7 +189,7 @@ func (encoder *encoderComplex128) Embed(values []complex128, logSlots uint64) {
 		encoder.values[i] = values[i]
 	}
 
-	encoder.invfft(encoder.values, slots)
+	invfft(encoder.values, slots, encoder.m, encoder.rotGroup, encoder.roots)
 
 	gap := (encoder.ringQ.N >> 1) / slots
 
@@ -181,6 +197,37 @@ func (encoder *encoderComplex128) Embed(values []complex128, logSlots uint64) {
 		encoder.valuesfloat[idx] = real(encoder.values[i])
 		encoder.valuesfloat[jdx] = imag(encoder.values[i])
 	}
+}
+
+// GetErrSTDFreqDom returns the scaled standard deviation of the difference between two complex vectors in the slot domains
+func (encoder *encoderComplex128) GetErrSTDFreqDom(valuesWant, valuesHave []complex128, scale float64) (std float64) {
+
+	var err complex128
+	for i := range valuesWant {
+		err = valuesWant[i] - valuesHave[i]
+		encoder.valuesfloat[2*i] = real(err)
+		encoder.valuesfloat[2*i+1] = imag(err)
+	}
+
+	return StandardDeviation(encoder.valuesfloat[:len(valuesWant)*2], scale)
+}
+
+// GetErrSTDTimeDom returns the scaled standard deviation of the coefficient domain of the difference between two complex vectors in the slot domains
+func (encoder *encoderComplex128) GetErrSTDTimeDom(valuesWant, valuesHave []complex128, scale float64) (std float64) {
+
+	for i := range valuesHave {
+		encoder.values[i] = (valuesWant[i] - valuesHave[i])
+	}
+
+	invfft(encoder.values, uint64(len(valuesWant)), encoder.m, encoder.rotGroup, encoder.roots)
+
+	for i := range valuesWant {
+		encoder.valuesfloat[2*i] = real(encoder.values[i])
+		encoder.valuesfloat[2*i+1] = imag(encoder.values[i])
+	}
+
+	return StandardDeviation(encoder.valuesfloat[:len(valuesWant)*2], scale)
+
 }
 
 // ScaleUp writes the internaly stored encoded values on a polynomial.
@@ -199,8 +246,193 @@ func (encoder *encoderComplex128) WipeInternalMemory() {
 	}
 }
 
-// EncodeCoefficients takes as input a polynomial a0 + a1x + a2x^2 + ... + an-1x^n-1 with float coefficient
-// and returns a scaled integer plaintext polynomial in NTT.
+// Decode decodes the Plaintext values to a slice of complex128 values of size at most N/2.
+// Rounds the decimal part of the output (the bits under the scale) to "logPrecision" bits of precision.
+func (encoder *encoderComplex128) DecodePublic(plaintext *Plaintext, logSlots uint64, bound float64) (res []complex128) {
+	return encoder.decodePublic(plaintext, logSlots, bound)
+}
+
+// Decode decodes the Plaintext values to a slice of complex128 values of size at most N/2.
+func (encoder *encoderComplex128) Decode(plaintext *Plaintext, slots uint64) (res []complex128) {
+	return encoder.decodePublic(plaintext, slots, 0)
+}
+
+func polyToComplexNoCRT(coeffs []uint64, values []complex128, scale float64, logSlots, Q uint64) {
+
+	slots := uint64(1 << logSlots)
+	maxSlots := uint64(len(coeffs)) >> 1
+	gap := maxSlots / slots
+
+	var real, imag float64
+	for i, idx := uint64(0), uint64(0); i < slots; i, idx = i+1, idx+gap {
+
+		if coeffs[idx] >= Q>>1 {
+			real = -float64(Q - coeffs[idx])
+		} else {
+			real = float64(coeffs[idx])
+		}
+
+		if coeffs[idx+maxSlots] >= Q>>1 {
+			imag = -float64(Q - coeffs[idx+maxSlots])
+		} else {
+			imag = float64(coeffs[idx+maxSlots])
+		}
+
+		values[i] = complex(real, imag) / complex(scale, 0)
+	}
+}
+
+func polyToComplexCRT(poly *ring.Poly, bigintCoeffs []*big.Int, values []complex128, scale float64, logSlots uint64, ringQ *ring.Ring, Q *big.Int) {
+
+	ringQ.PolyToBigint(poly, bigintCoeffs)
+
+	maxSlots := ringQ.N >> 1
+	slots := uint64(1 << logSlots)
+	gap := maxSlots / slots
+
+	qHalf := new(big.Int)
+	qHalf.Set(Q)
+	qHalf.Rsh(qHalf, 1)
+
+	var sign int
+
+	for i, idx := uint64(0), uint64(0); i < slots; i, idx = i+1, idx+gap {
+
+		// Centers the value around the current modulus
+		bigintCoeffs[idx].Mod(bigintCoeffs[idx], Q)
+		sign = bigintCoeffs[idx].Cmp(qHalf)
+		if sign == 1 || sign == 0 {
+			bigintCoeffs[idx].Sub(bigintCoeffs[idx], Q)
+		}
+
+		// Centers the value around the current modulus
+		bigintCoeffs[idx+maxSlots].Mod(bigintCoeffs[idx+maxSlots], Q)
+		sign = bigintCoeffs[idx+maxSlots].Cmp(qHalf)
+		if sign == 1 || sign == 0 {
+			bigintCoeffs[idx+maxSlots].Sub(bigintCoeffs[idx+maxSlots], Q)
+		}
+
+		values[i] = complex(scaleDown(bigintCoeffs[idx], scale), scaleDown(bigintCoeffs[idx+maxSlots], scale))
+	}
+}
+
+func (encoder *encoderComplex128) plaintextToComplex(level uint64, scale float64, logSlots uint64, p *ring.Poly, values []complex128) {
+	if scale < float64(encoder.ringQ.Modulus[0]) || level == 0 {
+		polyToComplexNoCRT(p.Coeffs[0], encoder.values, scale, logSlots, encoder.ringQ.Modulus[0])
+	} else {
+		polyToComplexCRT(p, encoder.bigintCoeffs, values, scale, logSlots, encoder.ringQ, encoder.bigintChain[level])
+	}
+}
+
+func roundComplexVector(values []complex128, bound float64) {
+	for i := range values {
+		a := math.Round(real(values[i])*bound) / bound
+		b := math.Round(imag(values[i])*bound) / bound
+		values[i] = complex(a, b)
+	}
+}
+
+func polyToFloatNoCRT(coeffs []uint64, values []float64, scale float64, Q uint64) {
+
+	for i, c := range coeffs {
+
+		if c >= Q>>1 {
+			values[i] = -float64(Q-c) / scale
+		} else {
+			values[i] = float64(c) / scale
+		}
+	}
+}
+
+func (encoder *encoderComplex128) decodePublic(plaintext *Plaintext, logSlots uint64, sigma float64) (res []complex128) {
+
+	if logSlots > encoder.params.LogN()-1 {
+		panic("cannot Decode: too many slots for the given ring degree")
+	}
+
+	slots := uint64(1 << logSlots)
+
+	if plaintext.isNTT {
+		encoder.ringQ.InvNTTLvl(plaintext.Level(), plaintext.value, encoder.polypool)
+	} else {
+		encoder.ringQ.CopyLvl(plaintext.Level(), plaintext.value, encoder.polypool)
+	}
+
+	// B = floor(sigma * sqrt(2*pi))
+	encoder.gaussianSampler.ReadAndAddLvl(plaintext.Level(), encoder.polypool, encoder.ringQ, sigma, uint64(2.5066282746310002*sigma))
+
+	encoder.plaintextToComplex(plaintext.Level(), plaintext.Scale(), logSlots, encoder.polypool, encoder.values)
+
+	fft(encoder.values, slots, encoder.m, encoder.rotGroup, encoder.roots)
+
+	res = make([]complex128, slots)
+
+	for i := range res {
+		res[i] = encoder.values[i]
+	}
+
+	for i := range encoder.values {
+		encoder.values[i] = 0
+	}
+
+	return
+}
+
+func invfft(values []complex128, N, M uint64, rotGroup []uint64, roots []complex128) {
+
+	var lenh, lenq, gap, idx uint64
+	var u, v complex128
+
+	for len := N; len >= 1; len >>= 1 {
+		for i := uint64(0); i < N; i += len {
+			lenh = len >> 1
+			lenq = len << 2
+			gap = M / lenq
+			for j := uint64(0); j < lenh; j++ {
+				idx = (lenq - (rotGroup[j] % lenq)) * gap
+				u = values[i+j] + values[i+j+lenh]
+				v = values[i+j] - values[i+j+lenh]
+				v *= roots[idx]
+				values[i+j] = u
+				values[i+j+lenh] = v
+
+			}
+		}
+	}
+
+	for i := uint64(0); i < N; i++ {
+		values[i] /= complex(float64(N), 0)
+	}
+
+	sliceBitReverseInPlaceComplex128(values, N)
+}
+
+func fft(values []complex128, N, M uint64, rotGroup []uint64, roots []complex128) {
+
+	var lenh, lenq, gap, idx uint64
+	var u, v complex128
+
+	sliceBitReverseInPlaceComplex128(values, N)
+
+	for len := uint64(2); len <= N; len <<= 1 {
+		for i := uint64(0); i < N; i += len {
+			lenh = len >> 1
+			lenq = len << 2
+			gap = M / lenq
+			for j := uint64(0); j < lenh; j++ {
+				idx = (rotGroup[j] % lenq) * gap
+				u = values[i+j]
+				v = values[i+j+lenh]
+				v *= roots[idx]
+				values[i+j] = u + v
+				values[i+j+lenh] = u - v
+			}
+		}
+	}
+}
+
+// EncodeCoeffs takes as input a polynomial a0 + a1x + a2x^2 + ... + an-1x^n-1 with float coefficient
+// and returns a scaled integer plaintext polynomial. Encodes at the input plaintext level.
 func (encoder *encoderComplex128) EncodeCoeffs(values []float64, plaintext *Plaintext) {
 
 	if uint64(len(values)) > encoder.params.N() {
@@ -212,21 +444,36 @@ func (encoder *encoderComplex128) EncodeCoeffs(values []float64, plaintext *Plai
 	plaintext.isNTT = false
 }
 
-// EncodeCoefficients takes as input a polynomial a0 + a1x + a2x^2 + ... + an-1x^n-1 with float coefficient
-// and returns a scaled integer plaintext polynomial in NTT.
+// EncodeCoeffsNTT takes as input a polynomial a0 + a1x + a2x^2 + ... + an-1x^n-1 with float coefficient
+// and returns a scaled integer plaintext polynomial in NTT. Encodes at the input plaintext level.
 func (encoder *encoderComplex128) EncodeCoeffsNTT(values []float64, plaintext *Plaintext) {
 	encoder.EncodeCoeffs(values, plaintext)
 	encoder.ringQ.NTTLvl(plaintext.Level(), plaintext.value, plaintext.value)
 	plaintext.isNTT = true
 }
 
-// DecodeCoeffs takes as input a plaintext and returns the scaled down coefficient of the plaintext in float64.
+// DecodeCoeffsPublic takes as input a plaintext and returns the scaled down coefficient of the plaintext in float64.
+// Rounds the decimal part of the output (the bits under the scale) to "logPrecision" bits of precision.
+func (encoder *encoderComplex128) DecodeCoeffsPublic(plaintext *Plaintext, sigma float64) (res []float64) {
+	return encoder.decodeCoeffsPublic(plaintext, sigma)
+}
+
 func (encoder *encoderComplex128) DecodeCoeffs(plaintext *Plaintext) (res []float64) {
+	return encoder.decodeCoeffsPublic(plaintext, 0)
+}
+
+// DecodeCoeffs takes as input a plaintext and returns the scaled down coefficient of the plaintext in float64.
+func (encoder *encoderComplex128) decodeCoeffsPublic(plaintext *Plaintext, sigma float64) (res []float64) {
 
 	if plaintext.isNTT {
 		encoder.ringQ.InvNTTLvl(plaintext.Level(), plaintext.value, encoder.polypool)
 	} else {
 		encoder.ringQ.CopyLvl(plaintext.Level(), plaintext.value, encoder.polypool)
+	}
+
+	if sigma != 0 {
+		// B = floor(sigma * sqrt(2*pi))
+		encoder.gaussianSampler.ReadAndAddLvl(plaintext.Level(), encoder.polypool, encoder.ringQ, sigma, uint64(2.5066282746310002*sigma))
 	}
 
 	res = make([]float64, encoder.params.N())
@@ -276,156 +523,15 @@ func (encoder *encoderComplex128) DecodeCoeffs(plaintext *Plaintext) (res []floa
 	return
 }
 
-// Decode decodes the Plaintext values to a slice of complex128 values of size at most N/2.
-func (encoder *encoderComplex128) Decode(plaintext *Plaintext, logSlots uint64) (res []complex128) {
-
-	if logSlots > encoder.params.LogN()-1 {
-		panic("cannot Decode: too many slots for the given ring degree")
-	}
-
-	slots := uint64(1 << logSlots)
-
-	if plaintext.isNTT {
-		encoder.ringQ.InvNTTLvl(plaintext.Level(), plaintext.value, encoder.polypool)
-	} else {
-		encoder.ringQ.CopyLvl(plaintext.Level(), plaintext.value, encoder.polypool)
-	}
-
-	maxSlots := encoder.ringQ.N >> 1
-	gap := maxSlots / slots
-
-	// We have more than one moduli and need the CRT reconstruction
-
-	if plaintext.Scale() < float64(encoder.ringQ.Modulus[0]) || plaintext.Level() == 0 {
-
-		Q := encoder.ringQ.Modulus[0]
-		coeffs := encoder.polypool.Coeffs[0]
-
-		var real, imag float64
-		for i, idx := uint64(0), uint64(0); i < slots; i, idx = i+1, idx+gap {
-
-			if coeffs[idx] >= Q>>1 {
-				real = -float64(Q - coeffs[idx])
-			} else {
-				real = float64(coeffs[idx])
-			}
-
-			if coeffs[idx+maxSlots] >= Q>>1 {
-				imag = -float64(Q - coeffs[idx+maxSlots])
-			} else {
-				imag = float64(coeffs[idx+maxSlots])
-			}
-
-			encoder.values[i] = complex(real, imag) / complex(plaintext.scale, 0)
-		}
-	} else {
-
-		encoder.ringQ.PolyToBigint(encoder.polypool, encoder.bigintCoeffs)
-
-		Q := encoder.bigintChain[plaintext.Level()]
-
-		encoder.qHalf.Set(Q)
-		encoder.qHalf.Rsh(encoder.qHalf, 1)
-
-		var sign int
-
-		for i, idx := uint64(0), uint64(0); i < slots; i, idx = i+1, idx+gap {
-
-			// Centers the value around the current modulus
-			encoder.bigintCoeffs[idx].Mod(encoder.bigintCoeffs[idx], Q)
-			sign = encoder.bigintCoeffs[idx].Cmp(encoder.qHalf)
-			if sign == 1 || sign == 0 {
-				encoder.bigintCoeffs[idx].Sub(encoder.bigintCoeffs[idx], Q)
-			}
-
-			// Centers the value around the current modulus
-			encoder.bigintCoeffs[idx+maxSlots].Mod(encoder.bigintCoeffs[idx+maxSlots], Q)
-			sign = encoder.bigintCoeffs[idx+maxSlots].Cmp(encoder.qHalf)
-			if sign == 1 || sign == 0 {
-				encoder.bigintCoeffs[idx+maxSlots].Sub(encoder.bigintCoeffs[idx+maxSlots], Q)
-			}
-
-			encoder.values[i] = complex(scaleDown(encoder.bigintCoeffs[idx], plaintext.scale), scaleDown(encoder.bigintCoeffs[idx+maxSlots], plaintext.scale))
-		}
-		// We can directly get the coefficients
-	}
-
-	encoder.fft(encoder.values, slots)
-
-	res = make([]complex128, slots)
-
-	for i := range res {
-		res[i] = encoder.values[i]
-	}
-
-	for i := uint64(0); i < encoder.ringQ.N>>1; i++ {
-		encoder.values[i] = 0
-	}
-
-	return
-}
-
-func (encoder *encoderComplex128) invfft(values []complex128, N uint64) {
-
-	var lenh, lenq, gap, idx uint64
-	var u, v complex128
-
-	for len := N; len >= 1; len >>= 1 {
-		for i := uint64(0); i < N; i += len {
-			lenh = len >> 1
-			lenq = len << 2
-			gap = encoder.m / lenq
-			for j := uint64(0); j < lenh; j++ {
-				idx = (lenq - (encoder.rotGroup[j] % lenq)) * gap
-				u = values[i+j] + values[i+j+lenh]
-				v = values[i+j] - values[i+j+lenh]
-				v *= encoder.roots[idx]
-				values[i+j] = u
-				values[i+j+lenh] = v
-
-			}
-		}
-	}
-
-	for i := uint64(0); i < N; i++ {
-		values[i] /= complex(float64(N), 0)
-	}
-
-	sliceBitReverseInPlaceComplex128(values, N)
-}
-
-func (encoder *encoderComplex128) fft(values []complex128, N uint64) {
-
-	var lenh, lenq, gap, idx uint64
-	var u, v complex128
-
-	sliceBitReverseInPlaceComplex128(values, N)
-
-	for len := uint64(2); len <= N; len <<= 1 {
-		for i := uint64(0); i < N; i += len {
-			lenh = len >> 1
-			lenq = len << 2
-			gap = encoder.m / lenq
-			for j := uint64(0); j < lenh; j++ {
-				idx = (encoder.rotGroup[j] % lenq) * gap
-				u = values[i+j]
-				v = values[i+j+lenh]
-				v *= encoder.roots[idx]
-				values[i+j] = u + v
-				values[i+j+lenh] = u - v
-			}
-		}
-	}
-}
-
 type encoderBigComplex struct {
 	encoder
-	zero         *big.Float
-	cMul         *ring.ComplexMultiplier
-	logPrecision uint64
-	values       []*ring.Complex
-	valuesfloat  []*big.Float
-	roots        []*ring.Complex
+	zero            *big.Float
+	cMul            *ring.ComplexMultiplier
+	logPrecision    uint64
+	values          []*ring.Complex
+	valuesfloat     []*big.Float
+	roots           []*ring.Complex
+	gaussianSampler *ring.GaussianSampler
 }
 
 // NewEncoderBigComplex creates a new encoder using arbitrary precision complex arithmetic.
@@ -556,7 +662,17 @@ func (encoder *encoderBigComplex) Encode(plaintext *Plaintext, values []*ring.Co
 }
 
 // Decode decodes the Plaintext values to a slice of complex128 values of size at most N/2.
+// Rounds the decimal part of the output (the bits under the scale) to "logPrecision" bits of precision.
+func (encoder *encoderBigComplex) DecodePublic(plaintext *Plaintext, logSlots uint64, sigma float64) (res []*ring.Complex) {
+	return encoder.decodePublic(plaintext, logSlots, sigma)
+}
+
 func (encoder *encoderBigComplex) Decode(plaintext *Plaintext, logSlots uint64) (res []*ring.Complex) {
+	return encoder.decodePublic(plaintext, logSlots, 0)
+}
+
+// Decode decodes the Plaintext values to a slice of complex128 values of size at most N/2.
+func (encoder *encoderBigComplex) decodePublic(plaintext *Plaintext, logSlots uint64, sigma float64) (res []*ring.Complex) {
 
 	slots := uint64(1 << logSlots)
 
@@ -565,6 +681,12 @@ func (encoder *encoderBigComplex) Decode(plaintext *Plaintext, logSlots uint64) 
 	}
 
 	encoder.ringQ.InvNTTLvl(plaintext.Level(), plaintext.value, encoder.polypool)
+
+	if sigma != 0 {
+		// B = floor(sigma * sqrt(2*pi))
+		encoder.gaussianSampler.ReadAndAddLvl(plaintext.Level(), encoder.polypool, encoder.ringQ, sigma, uint64(2.5066282746310002*sigma+0.5))
+	}
+
 	encoder.ringQ.PolyToBigint(encoder.polypool, encoder.bigintCoeffs)
 
 	Q := encoder.bigintChain[plaintext.Level()]

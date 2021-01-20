@@ -428,9 +428,22 @@ func (eval *evaluator) AddConst(ct0 *Ciphertext, constant interface{}, ctOut *Ci
 	var level = utils.MinUint64(ct0.Level(), ctOut.Level())
 	var scaledConst, scaledConstReal, scaledConstImag uint64
 
-	cReal, cImag, _ := eval.getConstAndScale(level, constant)
-
 	ringQ := eval.ringQ
+
+	if ct0 != ctOut {
+		if ct0.Degree() > ctOut.Degree() {
+			panic("receiver operand degree is too small")
+		} else if ctOut.Degree() > ct0.Degree() {
+			tmp := ctOut.value
+			tmp = tmp[:ct0.Degree()+1]
+		}
+	}
+
+	for i := range ct0.Value()[1:] {
+		ringQ.CopyLvl(level, ct0.Value()[i+1], ctOut.Value()[i+1])
+	}
+
+	cReal, cImag, _ := eval.getConstAndScale(level, constant)
 
 	// Component wise addition of the following vector to the ciphertext:
 	// [a + b*psi_qi^2, ....., a + b*psi_qi^2, a - b*psi_qi^2, ...., a - b*psi_qi^2] mod Qi
@@ -450,12 +463,12 @@ func (eval *evaluator) AddConst(ct0 *Ciphertext, constant interface{}, ctOut *Ci
 		}
 
 		if cImag != 0 {
-			scaledConstImag = ring.MRed(scaleUpExact(cImag, ctOut.Scale(), qi), ringQ.GetNttPsi()[i][1], qi, ringQ.GetMredParams()[i])
+			scaledConstImag = ring.FastBRed(scaleUpExact(cImag, ctOut.Scale(), qi), ringQ.NttPsi[i][1], qi)
 			scaledConst = ring.CRed(scaledConst+scaledConstImag, qi)
 		}
 
-		p1tmp := ctOut.Value()[0].Coeffs[i]
 		p0tmp := ct0.value[0].Coeffs[i]
+		p1tmp := ctOut.Value()[0].Coeffs[i]
 
 		for j := uint64(0); j < ringQ.N>>1; j = j + 8 {
 
@@ -490,6 +503,10 @@ func (eval *evaluator) AddConst(ct0 *Ciphertext, constant interface{}, ctOut *Ci
 			z[6] = ring.CRed(x[6]+scaledConst, qi)
 			z[7] = ring.CRed(x[7]+scaledConst, qi)
 		}
+	}
+
+	for i := range ctOut.Value() {
+		ctOut.Value()[i].Coeffs = ctOut.Value()[i].Coeffs[:level+1]
 	}
 }
 
@@ -557,11 +574,10 @@ func (eval *evaluator) MultByConstAndAdd(ct0 *Ciphertext, constant interface{}, 
 	// [a + b*psi_qi^2, ....., a + b*psi_qi^2, a - b*psi_qi^2, ...., a - b*psi_qi^2] mod Qi
 	// [{                  N/2                }{                N/2               }]
 	// Which is equivalent outside of the NTT domain to adding a to the first coefficient of ct0 and b to the N/2-th coefficient of ct0.
+	var scaledConstBred ring.FastBRedOperand
 	for i := uint64(0); i < level+1; i++ {
 
 		qi := ringQ.Modulus[i]
-		mredParams := ringQ.GetMredParams()[i]
-		bredParams := ringQ.GetBredParams()[i]
 
 		scaledConstReal = 0
 		scaledConstImag = 0
@@ -574,11 +590,11 @@ func (eval *evaluator) MultByConstAndAdd(ct0 *Ciphertext, constant interface{}, 
 
 		if cImag != 0 {
 			scaledConstImag = scaleUpExact(cImag, scale, qi)
-			scaledConstImag = ring.MRed(scaledConstImag, ringQ.GetNttPsi()[i][1], qi, mredParams)
+			scaledConstImag = ring.FastBRed(scaledConstImag, ringQ.NttPsi[i][1], qi)
 			scaledConst = ring.CRed(scaledConst+scaledConstImag, qi)
 		}
 
-		scaledConst = ring.MForm(scaledConst, qi, bredParams)
+		scaledConstBred = ring.NewFastBRedOperand(scaledConst, qi)
 
 		for u := range ct0.Value() {
 			p0tmp := ct0.Value()[u].Coeffs[i]
@@ -589,20 +605,20 @@ func (eval *evaluator) MultByConstAndAdd(ct0 *Ciphertext, constant interface{}, 
 				x := (*[8]uint64)(unsafe.Pointer(&p0tmp[j]))
 				z := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
 
-				z[0] = ring.CRed(z[0]+ring.MRed(x[0], scaledConst, qi, mredParams), qi)
-				z[1] = ring.CRed(z[1]+ring.MRed(x[1], scaledConst, qi, mredParams), qi)
-				z[2] = ring.CRed(z[2]+ring.MRed(x[2], scaledConst, qi, mredParams), qi)
-				z[3] = ring.CRed(z[3]+ring.MRed(x[3], scaledConst, qi, mredParams), qi)
-				z[4] = ring.CRed(z[4]+ring.MRed(x[4], scaledConst, qi, mredParams), qi)
-				z[5] = ring.CRed(z[5]+ring.MRed(x[5], scaledConst, qi, mredParams), qi)
-				z[6] = ring.CRed(z[6]+ring.MRed(x[6], scaledConst, qi, mredParams), qi)
-				z[7] = ring.CRed(z[7]+ring.MRed(x[7], scaledConst, qi, mredParams), qi)
+				z[0] = ring.CRed(z[0]+ring.FastBRed(x[0], scaledConstBred, qi), qi)
+				z[1] = ring.CRed(z[1]+ring.FastBRed(x[1], scaledConstBred, qi), qi)
+				z[2] = ring.CRed(z[2]+ring.FastBRed(x[2], scaledConstBred, qi), qi)
+				z[3] = ring.CRed(z[3]+ring.FastBRed(x[3], scaledConstBred, qi), qi)
+				z[4] = ring.CRed(z[4]+ring.FastBRed(x[4], scaledConstBred, qi), qi)
+				z[5] = ring.CRed(z[5]+ring.FastBRed(x[5], scaledConstBred, qi), qi)
+				z[6] = ring.CRed(z[6]+ring.FastBRed(x[6], scaledConstBred, qi), qi)
+				z[7] = ring.CRed(z[7]+ring.FastBRed(x[7], scaledConstBred, qi), qi)
 			}
 		}
 
 		if cImag != 0 {
 			scaledConst = ring.CRed(scaledConstReal+(qi-scaledConstImag), qi)
-			scaledConst = ring.MForm(scaledConst, qi, bredParams)
+			scaledConstBred = ring.NewFastBRedOperand(scaledConst, qi)
 		}
 
 		for u := range ct0.Value() {
@@ -613,14 +629,14 @@ func (eval *evaluator) MultByConstAndAdd(ct0 *Ciphertext, constant interface{}, 
 				x := (*[8]uint64)(unsafe.Pointer(&p0tmp[j]))
 				z := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
 
-				z[0] = ring.CRed(z[0]+ring.MRed(x[0], scaledConst, qi, mredParams), qi)
-				z[1] = ring.CRed(z[1]+ring.MRed(x[1], scaledConst, qi, mredParams), qi)
-				z[2] = ring.CRed(z[2]+ring.MRed(x[2], scaledConst, qi, mredParams), qi)
-				z[3] = ring.CRed(z[3]+ring.MRed(x[3], scaledConst, qi, mredParams), qi)
-				z[4] = ring.CRed(z[4]+ring.MRed(x[4], scaledConst, qi, mredParams), qi)
-				z[5] = ring.CRed(z[5]+ring.MRed(x[5], scaledConst, qi, mredParams), qi)
-				z[6] = ring.CRed(z[6]+ring.MRed(x[6], scaledConst, qi, mredParams), qi)
-				z[7] = ring.CRed(z[7]+ring.MRed(x[7], scaledConst, qi, mredParams), qi)
+				z[0] = ring.CRed(z[0]+ring.FastBRed(x[0], scaledConstBred, qi), qi)
+				z[1] = ring.CRed(z[1]+ring.FastBRed(x[1], scaledConstBred, qi), qi)
+				z[2] = ring.CRed(z[2]+ring.FastBRed(x[2], scaledConstBred, qi), qi)
+				z[3] = ring.CRed(z[3]+ring.FastBRed(x[3], scaledConstBred, qi), qi)
+				z[4] = ring.CRed(z[4]+ring.FastBRed(x[4], scaledConstBred, qi), qi)
+				z[5] = ring.CRed(z[5]+ring.FastBRed(x[5], scaledConstBred, qi), qi)
+				z[6] = ring.CRed(z[6]+ring.FastBRed(x[6], scaledConstBred, qi), qi)
+				z[7] = ring.CRed(z[7]+ring.FastBRed(x[7], scaledConstBred, qi), qi)
 			}
 		}
 	}
@@ -650,11 +666,10 @@ func (eval *evaluator) MultByConst(ct0 *Ciphertext, constant interface{}, ctOut 
 	// Which is equivalent outside of the NTT domain to adding a to the first coefficient of ct0 and b to the N/2-th coefficient of ct0.
 	ringQ := eval.ringQ
 	var scaledConst, scaledConstReal, scaledConstImag uint64
+	var scaledConstBred ring.FastBRedOperand
 	for i := uint64(0); i < level+1; i++ {
 
 		qi := ringQ.Modulus[i]
-		bredParams := ringQ.GetBredParams()[i]
-		mredParams := ringQ.GetMredParams()[i]
 
 		scaledConstReal = 0
 		scaledConstImag = 0
@@ -667,11 +682,11 @@ func (eval *evaluator) MultByConst(ct0 *Ciphertext, constant interface{}, ctOut 
 
 		if cImag != 0 {
 			scaledConstImag = scaleUpExact(cImag, scale, qi)
-			scaledConstImag = ring.MRed(scaledConstImag, ringQ.GetNttPsi()[i][1], qi, mredParams)
+			scaledConstImag = ring.FastBRed(scaledConstImag, ringQ.NttPsi[i][1], qi)
 			scaledConst = ring.CRed(scaledConst+scaledConstImag, qi)
 		}
 
-		scaledConst = ring.MForm(scaledConst, qi, bredParams)
+		scaledConstBred = ring.NewFastBRedOperand(scaledConst, qi)
 
 		for u := range ct0.Value() {
 			p0tmp := ct0.Value()[u].Coeffs[i]
@@ -682,20 +697,20 @@ func (eval *evaluator) MultByConst(ct0 *Ciphertext, constant interface{}, ctOut 
 				x := (*[8]uint64)(unsafe.Pointer(&p0tmp[j]))
 				z := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
 
-				z[0] = ring.MRed(x[0], scaledConst, qi, mredParams)
-				z[1] = ring.MRed(x[1], scaledConst, qi, mredParams)
-				z[2] = ring.MRed(x[2], scaledConst, qi, mredParams)
-				z[3] = ring.MRed(x[3], scaledConst, qi, mredParams)
-				z[4] = ring.MRed(x[4], scaledConst, qi, mredParams)
-				z[5] = ring.MRed(x[5], scaledConst, qi, mredParams)
-				z[6] = ring.MRed(x[6], scaledConst, qi, mredParams)
-				z[7] = ring.MRed(x[7], scaledConst, qi, mredParams)
+				z[0] = ring.FastBRed(x[0], scaledConstBred, qi)
+				z[1] = ring.FastBRed(x[1], scaledConstBred, qi)
+				z[2] = ring.FastBRed(x[2], scaledConstBred, qi)
+				z[3] = ring.FastBRed(x[3], scaledConstBred, qi)
+				z[4] = ring.FastBRed(x[4], scaledConstBred, qi)
+				z[5] = ring.FastBRed(x[5], scaledConstBred, qi)
+				z[6] = ring.FastBRed(x[6], scaledConstBred, qi)
+				z[7] = ring.FastBRed(x[7], scaledConstBred, qi)
 			}
 		}
 
 		if cImag != 0 {
 			scaledConst = ring.CRed(scaledConstReal+(qi-scaledConstImag), qi)
-			scaledConst = ring.MForm(scaledConst, qi, bredParams)
+			scaledConstBred = ring.NewFastBRedOperand(scaledConst, qi)
 		}
 
 		for u := range ct0.Value() {
@@ -706,14 +721,14 @@ func (eval *evaluator) MultByConst(ct0 *Ciphertext, constant interface{}, ctOut 
 				x := (*[8]uint64)(unsafe.Pointer(&p0tmp[j]))
 				z := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
 
-				z[0] = ring.MRed(x[0], scaledConst, qi, mredParams)
-				z[1] = ring.MRed(x[1], scaledConst, qi, mredParams)
-				z[2] = ring.MRed(x[2], scaledConst, qi, mredParams)
-				z[3] = ring.MRed(x[3], scaledConst, qi, mredParams)
-				z[4] = ring.MRed(x[4], scaledConst, qi, mredParams)
-				z[5] = ring.MRed(x[5], scaledConst, qi, mredParams)
-				z[6] = ring.MRed(x[6], scaledConst, qi, mredParams)
-				z[7] = ring.MRed(x[7], scaledConst, qi, mredParams)
+				z[0] = ring.FastBRed(x[0], scaledConstBred, qi)
+				z[1] = ring.FastBRed(x[1], scaledConstBred, qi)
+				z[2] = ring.FastBRed(x[2], scaledConstBred, qi)
+				z[3] = ring.FastBRed(x[3], scaledConstBred, qi)
+				z[4] = ring.FastBRed(x[4], scaledConstBred, qi)
+				z[5] = ring.FastBRed(x[5], scaledConstBred, qi)
+				z[6] = ring.FastBRed(x[6], scaledConstBred, qi)
+				z[7] = ring.FastBRed(x[7], scaledConstBred, qi)
 			}
 		}
 	}
@@ -727,12 +742,10 @@ func (eval *evaluator) MultByGaussianInteger(ct0 *Ciphertext, cReal, cImag int64
 
 	level := utils.MinUint64(ct0.Level(), ctOut.Level())
 	var scaledConst, scaledConstReal, scaledConstImag uint64
-
+	var scaledConstBred ring.FastBRedOperand
 	for i := uint64(0); i < level+1; i++ {
 
 		qi := ringQ.Modulus[i]
-		bredParams := ringQ.GetBredParams()[i]
-		mredParams := ringQ.GetMredParams()[i]
 
 		scaledConstReal = 0
 		scaledConstImag = 0
@@ -753,11 +766,11 @@ func (eval *evaluator) MultByGaussianInteger(ct0 *Ciphertext, cReal, cImag int64
 			} else {
 				scaledConstImag = uint64(cImag)
 			}
-			scaledConstImag = ring.MRed(scaledConstImag, ringQ.GetNttPsi()[i][1], qi, mredParams)
+			scaledConstImag = ring.FastBRed(scaledConstImag, ringQ.NttPsi[i][1], qi)
 			scaledConst = ring.CRed(scaledConst+scaledConstImag, qi)
 		}
 
-		scaledConst = ring.MForm(scaledConst, qi, bredParams)
+		scaledConstBred = ring.NewFastBRedOperand(ring.BRedAdd(scaledConst, qi, ringQ.BredParams[i]), qi)
 
 		for u := range ct0.Value() {
 			p0tmp := ct0.Value()[u].Coeffs[i]
@@ -768,20 +781,20 @@ func (eval *evaluator) MultByGaussianInteger(ct0 *Ciphertext, cReal, cImag int64
 				x := (*[8]uint64)(unsafe.Pointer(&p0tmp[j]))
 				z := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
 
-				z[0] = ring.MRed(x[0], scaledConst, qi, mredParams)
-				z[1] = ring.MRed(x[1], scaledConst, qi, mredParams)
-				z[2] = ring.MRed(x[2], scaledConst, qi, mredParams)
-				z[3] = ring.MRed(x[3], scaledConst, qi, mredParams)
-				z[4] = ring.MRed(x[4], scaledConst, qi, mredParams)
-				z[5] = ring.MRed(x[5], scaledConst, qi, mredParams)
-				z[6] = ring.MRed(x[6], scaledConst, qi, mredParams)
-				z[7] = ring.MRed(x[7], scaledConst, qi, mredParams)
+				z[0] = ring.FastBRed(x[0], scaledConstBred, qi)
+				z[1] = ring.FastBRed(x[1], scaledConstBred, qi)
+				z[2] = ring.FastBRed(x[2], scaledConstBred, qi)
+				z[3] = ring.FastBRed(x[3], scaledConstBred, qi)
+				z[4] = ring.FastBRed(x[4], scaledConstBred, qi)
+				z[5] = ring.FastBRed(x[5], scaledConstBred, qi)
+				z[6] = ring.FastBRed(x[6], scaledConstBred, qi)
+				z[7] = ring.FastBRed(x[7], scaledConstBred, qi)
 			}
 		}
 
 		if cImag != 0 {
-			scaledConst = ring.CRed(scaledConstReal+(qi-scaledConstImag), qi)
-			scaledConst = ring.MForm(scaledConst, qi, bredParams)
+			scaledConst = ring.BRedAdd(scaledConstReal+(qi-scaledConstImag), qi, ringQ.BredParams[i])
+			scaledConstBred = ring.NewFastBRedOperand(scaledConst, qi)
 		}
 
 		for u := range ct0.Value() {
@@ -793,14 +806,14 @@ func (eval *evaluator) MultByGaussianInteger(ct0 *Ciphertext, cReal, cImag int64
 				x := (*[8]uint64)(unsafe.Pointer(&p0tmp[j]))
 				z := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
 
-				z[0] = ring.MRed(x[0], scaledConst, qi, mredParams)
-				z[1] = ring.MRed(x[1], scaledConst, qi, mredParams)
-				z[2] = ring.MRed(x[2], scaledConst, qi, mredParams)
-				z[3] = ring.MRed(x[3], scaledConst, qi, mredParams)
-				z[4] = ring.MRed(x[4], scaledConst, qi, mredParams)
-				z[5] = ring.MRed(x[5], scaledConst, qi, mredParams)
-				z[6] = ring.MRed(x[6], scaledConst, qi, mredParams)
-				z[7] = ring.MRed(x[7], scaledConst, qi, mredParams)
+				z[0] = ring.FastBRed(x[0], scaledConstBred, qi)
+				z[1] = ring.FastBRed(x[1], scaledConstBred, qi)
+				z[2] = ring.FastBRed(x[2], scaledConstBred, qi)
+				z[3] = ring.FastBRed(x[3], scaledConstBred, qi)
+				z[4] = ring.FastBRed(x[4], scaledConstBred, qi)
+				z[5] = ring.FastBRed(x[5], scaledConstBred, qi)
+				z[6] = ring.FastBRed(x[6], scaledConstBred, qi)
+				z[7] = ring.FastBRed(x[7], scaledConstBred, qi)
 			}
 		}
 	}
@@ -812,12 +825,10 @@ func (eval *evaluator) MultByGaussianIntegerAndAdd(ct0 *Ciphertext, cReal, cImag
 
 	level := utils.MinUint64(ct0.Level(), ctOut.Level())
 	var scaledConst, scaledConstReal, scaledConstImag uint64
-
+	var scaledConstBred ring.FastBRedOperand
 	for i := uint64(0); i < level+1; i++ {
 
 		qi := ringQ.Modulus[i]
-		bredParams := ringQ.GetBredParams()[i]
-		mredParams := ringQ.GetMredParams()[i]
 
 		scaledConstReal = 0
 		scaledConstImag = 0
@@ -838,11 +849,11 @@ func (eval *evaluator) MultByGaussianIntegerAndAdd(ct0 *Ciphertext, cReal, cImag
 			} else {
 				scaledConstImag = uint64(cImag)
 			}
-			scaledConstImag = ring.MRed(scaledConstImag, ringQ.GetNttPsi()[i][1], qi, mredParams)
-			scaledConst = ring.CRed(scaledConst+scaledConstImag, qi)
+			scaledConstImag = ring.FastBRed(scaledConstImag, ringQ.NttPsi[i][1], qi)
+			scaledConst += scaledConstImag
 		}
 
-		scaledConst = ring.MForm(scaledConst, qi, bredParams)
+		scaledConstBred = ring.NewFastBRedOperand(ring.BRedAdd(scaledConst, qi, ringQ.BredParams[i]), qi)
 
 		for u := range ct0.Value() {
 			p0tmp := ct0.Value()[u].Coeffs[i]
@@ -853,20 +864,20 @@ func (eval *evaluator) MultByGaussianIntegerAndAdd(ct0 *Ciphertext, cReal, cImag
 				x := (*[8]uint64)(unsafe.Pointer(&p0tmp[j]))
 				z := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
 
-				z[0] = ring.CRed(z[0]+ring.MRed(x[0], scaledConst, qi, mredParams), qi)
-				z[1] = ring.CRed(z[1]+ring.MRed(x[1], scaledConst, qi, mredParams), qi)
-				z[2] = ring.CRed(z[2]+ring.MRed(x[2], scaledConst, qi, mredParams), qi)
-				z[3] = ring.CRed(z[3]+ring.MRed(x[3], scaledConst, qi, mredParams), qi)
-				z[4] = ring.CRed(z[4]+ring.MRed(x[4], scaledConst, qi, mredParams), qi)
-				z[5] = ring.CRed(z[5]+ring.MRed(x[5], scaledConst, qi, mredParams), qi)
-				z[6] = ring.CRed(z[6]+ring.MRed(x[6], scaledConst, qi, mredParams), qi)
-				z[7] = ring.CRed(z[7]+ring.MRed(x[7], scaledConst, qi, mredParams), qi)
+				z[0] = ring.CRed(z[0]+ring.FastBRed(x[0], scaledConstBred, qi), qi)
+				z[1] = ring.CRed(z[1]+ring.FastBRed(x[1], scaledConstBred, qi), qi)
+				z[2] = ring.CRed(z[2]+ring.FastBRed(x[2], scaledConstBred, qi), qi)
+				z[3] = ring.CRed(z[3]+ring.FastBRed(x[3], scaledConstBred, qi), qi)
+				z[4] = ring.CRed(z[4]+ring.FastBRed(x[4], scaledConstBred, qi), qi)
+				z[5] = ring.CRed(z[5]+ring.FastBRed(x[5], scaledConstBred, qi), qi)
+				z[6] = ring.CRed(z[6]+ring.FastBRed(x[6], scaledConstBred, qi), qi)
+				z[7] = ring.CRed(z[7]+ring.FastBRed(x[7], scaledConstBred, qi), qi)
 			}
 		}
 
 		if cImag != 0 {
-			scaledConst = ring.CRed(scaledConstReal+(qi-scaledConstImag), qi)
-			scaledConst = ring.MForm(scaledConst, qi, bredParams)
+			scaledConst = ring.BRedAdd(scaledConstReal+(qi-scaledConstImag), qi, ringQ.BredParams[i])
+			scaledConstBred = ring.NewFastBRedOperand(scaledConst, qi)
 		}
 
 		for u := range ct0.Value() {
@@ -878,14 +889,14 @@ func (eval *evaluator) MultByGaussianIntegerAndAdd(ct0 *Ciphertext, cReal, cImag
 				x := (*[8]uint64)(unsafe.Pointer(&p0tmp[j]))
 				z := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
 
-				z[0] = ring.CRed(z[0]+ring.MRed(x[0], scaledConst, qi, mredParams), qi)
-				z[1] = ring.CRed(z[1]+ring.MRed(x[1], scaledConst, qi, mredParams), qi)
-				z[2] = ring.CRed(z[2]+ring.MRed(x[2], scaledConst, qi, mredParams), qi)
-				z[3] = ring.CRed(z[3]+ring.MRed(x[3], scaledConst, qi, mredParams), qi)
-				z[4] = ring.CRed(z[4]+ring.MRed(x[4], scaledConst, qi, mredParams), qi)
-				z[5] = ring.CRed(z[5]+ring.MRed(x[5], scaledConst, qi, mredParams), qi)
-				z[6] = ring.CRed(z[6]+ring.MRed(x[6], scaledConst, qi, mredParams), qi)
-				z[7] = ring.CRed(z[7]+ring.MRed(x[7], scaledConst, qi, mredParams), qi)
+				z[0] = ring.CRed(z[0]+ring.FastBRed(x[0], scaledConstBred, qi), qi)
+				z[1] = ring.CRed(z[1]+ring.FastBRed(x[1], scaledConstBred, qi), qi)
+				z[2] = ring.CRed(z[2]+ring.FastBRed(x[2], scaledConstBred, qi), qi)
+				z[3] = ring.CRed(z[3]+ring.FastBRed(x[3], scaledConstBred, qi), qi)
+				z[4] = ring.CRed(z[4]+ring.FastBRed(x[4], scaledConstBred, qi), qi)
+				z[5] = ring.CRed(z[5]+ring.FastBRed(x[5], scaledConstBred, qi), qi)
+				z[6] = ring.CRed(z[6]+ring.FastBRed(x[6], scaledConstBred, qi), qi)
+				z[7] = ring.CRed(z[7]+ring.FastBRed(x[7], scaledConstBred, qi), qi)
 			}
 		}
 	}
@@ -907,15 +918,14 @@ func (eval *evaluator) MultByi(ct0 *Ciphertext, ctOut *Ciphertext) {
 
 	ringQ := eval.ringQ
 
-	var imag uint64
+	var imag ring.FastBRedOperand
 
 	// Equivalent to a product by the monomial x^(n/2) outside of the NTT domain
 	for i := uint64(0); i < level+1; i++ {
 
 		qi := ringQ.Modulus[i]
-		mredParams := ringQ.GetMredParams()[i]
 
-		imag = ringQ.GetNttPsi()[i][1] // Psi^2
+		imag = ringQ.NttPsi[i][1] // Psi^2
 
 		for u := range ctOut.value {
 			p0tmp := ct0.value[u].Coeffs[i]
@@ -926,18 +936,18 @@ func (eval *evaluator) MultByi(ct0 *Ciphertext, ctOut *Ciphertext) {
 				x := (*[8]uint64)(unsafe.Pointer(&p0tmp[j]))
 				z := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
 
-				z[0] = ring.MRed(x[0], imag, qi, mredParams)
-				z[1] = ring.MRed(x[1], imag, qi, mredParams)
-				z[2] = ring.MRed(x[2], imag, qi, mredParams)
-				z[3] = ring.MRed(x[3], imag, qi, mredParams)
-				z[4] = ring.MRed(x[4], imag, qi, mredParams)
-				z[5] = ring.MRed(x[5], imag, qi, mredParams)
-				z[6] = ring.MRed(x[6], imag, qi, mredParams)
-				z[7] = ring.MRed(x[7], imag, qi, mredParams)
+				z[0] = ring.FastBRed(x[0], imag, qi)
+				z[1] = ring.FastBRed(x[1], imag, qi)
+				z[2] = ring.FastBRed(x[2], imag, qi)
+				z[3] = ring.FastBRed(x[3], imag, qi)
+				z[4] = ring.FastBRed(x[4], imag, qi)
+				z[5] = ring.FastBRed(x[5], imag, qi)
+				z[6] = ring.FastBRed(x[6], imag, qi)
+				z[7] = ring.FastBRed(x[7], imag, qi)
 			}
 		}
 
-		imag = qi - imag
+		imag = ring.NewFastBRedOperand(qi-imag.Operand, qi)
 
 		for u := range ctOut.value {
 			p0tmp := ct0.value[u].Coeffs[i]
@@ -947,14 +957,14 @@ func (eval *evaluator) MultByi(ct0 *Ciphertext, ctOut *Ciphertext) {
 				x := (*[8]uint64)(unsafe.Pointer(&p0tmp[j]))
 				z := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
 
-				z[0] = ring.MRed(x[0], imag, qi, mredParams)
-				z[1] = ring.MRed(x[1], imag, qi, mredParams)
-				z[2] = ring.MRed(x[2], imag, qi, mredParams)
-				z[3] = ring.MRed(x[3], imag, qi, mredParams)
-				z[4] = ring.MRed(x[4], imag, qi, mredParams)
-				z[5] = ring.MRed(x[5], imag, qi, mredParams)
-				z[6] = ring.MRed(x[6], imag, qi, mredParams)
-				z[7] = ring.MRed(x[7], imag, qi, mredParams)
+				z[0] = ring.FastBRed(x[0], imag, qi)
+				z[1] = ring.FastBRed(x[1], imag, qi)
+				z[2] = ring.FastBRed(x[2], imag, qi)
+				z[3] = ring.FastBRed(x[3], imag, qi)
+				z[4] = ring.FastBRed(x[4], imag, qi)
+				z[5] = ring.FastBRed(x[5], imag, qi)
+				z[6] = ring.FastBRed(x[6], imag, qi)
+				z[7] = ring.FastBRed(x[7], imag, qi)
 
 			}
 		}
@@ -977,15 +987,14 @@ func (eval *evaluator) DivByi(ct0 *Ciphertext, ctOut *Ciphertext) {
 
 	ringQ := eval.ringQ
 
-	var imag uint64
+	var imag ring.FastBRedOperand
 
 	// Equivalent to a product by the monomial x^(3*n/2) outside of the NTT domain
 	for i := uint64(0); i < level+1; i++ {
 
 		qi := ringQ.Modulus[i]
-		mredParams := ringQ.GetMredParams()[i]
 
-		imag = qi - ringQ.GetNttPsi()[i][1] // -Psi^2
+		imag = ring.NewFastBRedOperand(qi-ringQ.NttPsi[i][1].Operand, qi) // -Psi^2
 
 		for u := range ctOut.value {
 			p0tmp := ct0.value[u].Coeffs[i]
@@ -995,18 +1004,18 @@ func (eval *evaluator) DivByi(ct0 *Ciphertext, ctOut *Ciphertext) {
 				x := (*[8]uint64)(unsafe.Pointer(&p0tmp[j]))
 				z := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
 
-				z[0] = ring.MRed(x[0], imag, qi, mredParams)
-				z[1] = ring.MRed(x[1], imag, qi, mredParams)
-				z[2] = ring.MRed(x[2], imag, qi, mredParams)
-				z[3] = ring.MRed(x[3], imag, qi, mredParams)
-				z[4] = ring.MRed(x[4], imag, qi, mredParams)
-				z[5] = ring.MRed(x[5], imag, qi, mredParams)
-				z[6] = ring.MRed(x[6], imag, qi, mredParams)
-				z[7] = ring.MRed(x[7], imag, qi, mredParams)
+				z[0] = ring.FastBRed(x[0], imag, qi)
+				z[1] = ring.FastBRed(x[1], imag, qi)
+				z[2] = ring.FastBRed(x[2], imag, qi)
+				z[3] = ring.FastBRed(x[3], imag, qi)
+				z[4] = ring.FastBRed(x[4], imag, qi)
+				z[5] = ring.FastBRed(x[5], imag, qi)
+				z[6] = ring.FastBRed(x[6], imag, qi)
+				z[7] = ring.FastBRed(x[7], imag, qi)
 			}
 		}
 
-		imag = ringQ.GetNttPsi()[i][1] // Psi^2
+		imag = ringQ.NttPsi[i][1] // Psi^2
 
 		for u := range ctOut.value {
 			p0tmp := ct0.value[u].Coeffs[i]
@@ -1016,14 +1025,14 @@ func (eval *evaluator) DivByi(ct0 *Ciphertext, ctOut *Ciphertext) {
 				x := (*[8]uint64)(unsafe.Pointer(&p0tmp[j]))
 				z := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
 
-				z[0] = ring.MRed(x[0], imag, qi, mredParams)
-				z[1] = ring.MRed(x[1], imag, qi, mredParams)
-				z[2] = ring.MRed(x[2], imag, qi, mredParams)
-				z[3] = ring.MRed(x[3], imag, qi, mredParams)
-				z[4] = ring.MRed(x[4], imag, qi, mredParams)
-				z[5] = ring.MRed(x[5], imag, qi, mredParams)
-				z[6] = ring.MRed(x[6], imag, qi, mredParams)
-				z[7] = ring.MRed(x[7], imag, qi, mredParams)
+				z[0] = ring.FastBRed(x[0], imag, qi)
+				z[1] = ring.FastBRed(x[1], imag, qi)
+				z[2] = ring.FastBRed(x[2], imag, qi)
+				z[3] = ring.FastBRed(x[3], imag, qi)
+				z[4] = ring.FastBRed(x[4], imag, qi)
+				z[5] = ring.FastBRed(x[5], imag, qi)
+				z[6] = ring.FastBRed(x[6], imag, qi)
+				z[7] = ring.FastBRed(x[7], imag, qi)
 			}
 		}
 	}
@@ -1598,9 +1607,7 @@ func (eval *evaluator) decomposeAndSplitNTT(level, beta uint64, c2NTT, c2InvNTT,
 	for x := uint64(0); x < level+1; x++ {
 
 		qi := ringQ.Modulus[x]
-		nttPsi := ringQ.GetNttPsi()[x]
-		bredParams := ringQ.GetBredParams()[x]
-		mredParams := ringQ.GetMredParams()[x]
+		nttPsi := ringQ.NttPsi[x]
 
 		if p0idxst <= x && x < p0idxed {
 			p0tmp := c2NTT.Coeffs[x]
@@ -1609,7 +1616,7 @@ func (eval *evaluator) decomposeAndSplitNTT(level, beta uint64, c2NTT, c2InvNTT,
 				p1tmp[j] = p0tmp[j]
 			}
 		} else {
-			ring.NTTLazy(c2QiQ.Coeffs[x], c2QiQ.Coeffs[x], ringQ.N, nttPsi, qi, mredParams, bredParams)
+			ring.NTTLazy(c2QiQ.Coeffs[x], c2QiQ.Coeffs[x], ringQ.N, nttPsi, qi)
 		}
 	}
 	// c2QiP = c2 mod qi mod pj

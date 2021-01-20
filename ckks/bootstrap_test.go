@@ -93,7 +93,7 @@ func testChebySin(testContext *testParams, btpParams *BootstrappingParameters, t
 			t.Error(err)
 		}
 
-		verifyTestVectors(testContext, testContext.decryptor, values, ciphertext, t)
+		verifyTestVectors(testContext, testContext.decryptor, values, ciphertext, t, 0)
 
 		testContext.params.scale = DefaultScale
 		eval.(*evaluator).scale = DefaultScale
@@ -170,7 +170,7 @@ func testChebyCos(testContext *testParams, btpParams *BootstrappingParameters, t
 			eval.Rescale(ciphertext, eval.(*evaluator).scale, ciphertext)
 		}
 
-		verifyTestVectors(testContext, testContext.decryptor, values, ciphertext, t)
+		verifyTestVectors(testContext, testContext.decryptor, values, ciphertext, t, 0)
 
 		testContext.params.scale = DefaultScale
 		eval.(*evaluator).scale = DefaultScale
@@ -242,7 +242,7 @@ func testChebyCosNaive(testContext *testParams, btpParams *BootstrappingParamete
 			eval.Rescale(ciphertext, eval.(*evaluator).scale, ciphertext)
 		}
 
-		verifyTestVectors(testContext, testContext.decryptor, values, ciphertext, t)
+		verifyTestVectors(testContext, testContext.decryptor, values, ciphertext, t, 0)
 
 		testContext.params.scale = DefaultScale
 		eval.(*evaluator).scale = DefaultScale
@@ -287,7 +287,7 @@ func testbootstrap(testContext *testParams, btpParams *BootstrappingParameters, 
 
 			ciphertext = btp.Bootstrapp(ciphertext)
 			//testContext.evaluator.SetScale(ciphertext, testContext.params.scale)
-			verifyTestVectors(testContext, testContext.decryptor, values, ciphertext, t)
+			verifyTestVectors(testContext, testContext.decryptor, values, ciphertext, t, 0)
 		}
 
 	})

@@ -17,6 +17,7 @@ type PermuteProtocol struct {
 	maskFloat       []*big.Float
 	maskComplex     []*ring.Complex
 	gaussianSampler *ring.GaussianSampler
+	sigma           float64
 }
 
 // NewPermuteProtocol creates a new instance of the PermuteProtocol.
@@ -32,6 +33,7 @@ func NewPermuteProtocol(params *ckks.Parameters) (pp *PermuteProtocol) {
 	pp.maskBigint = make([]*big.Int, dckksContext.n)
 	pp.maskFloat = make([]*big.Float, dckksContext.n)
 	pp.maskComplex = make([]*ring.Complex, dckksContext.n>>1)
+	pp.sigma = params.Sigma()
 
 	for i := uint64(0); i < dckksContext.n>>1; i++ {
 		pp.maskFloat[i] = new(big.Float)
@@ -47,7 +49,7 @@ func NewPermuteProtocol(params *ckks.Parameters) (pp *PermuteProtocol) {
 	if err != nil {
 		panic(err)
 	}
-	pp.gaussianSampler = ring.NewGaussianSampler(prng, dckksContext.ringQ, params.Sigma(), uint64(6*params.Sigma()))
+	pp.gaussianSampler = ring.NewGaussianSampler(prng)
 
 	return
 }
@@ -103,8 +105,8 @@ func (pp *PermuteProtocol) GenShares(sk *ring.Poly, levelStart, nParties uint64,
 	// h0 = sk*c1 + mask
 	ringQ.MulCoeffsMontgomeryAndAddLvl(levelStart, sk, ciphertext.Value()[1], shareDecrypt)
 	// h0 = sk*c1 + mask + e0
-	pp.gaussianSampler.Read(pp.tmp)
-	ringQ.NTT(pp.tmp, pp.tmp)
+	pp.gaussianSampler.ReadLvl(levelStart, pp.tmp, ringQ, pp.sigma, uint64(6*pp.sigma))
+	ringQ.NTTLvl(levelStart, pp.tmp, pp.tmp)
 	ringQ.AddLvl(levelStart, shareDecrypt, pp.tmp, shareDecrypt)
 
 	// Permutes only the (sparse) plaintext coefficients of h1
@@ -133,7 +135,7 @@ func (pp *PermuteProtocol) GenShares(sk *ring.Poly, levelStart, nParties uint64,
 	ringQ.MulCoeffsMontgomeryAndAdd(sk, crs, shareRecrypt)
 
 	// h1 = sk*a + mask + e1
-	pp.gaussianSampler.Read(pp.tmp)
+	pp.gaussianSampler.Read(pp.tmp, ringQ, pp.sigma, uint64(6*pp.sigma))
 	ringQ.NTT(pp.tmp, pp.tmp)
 	ringQ.Add(shareRecrypt, pp.tmp, shareRecrypt)
 

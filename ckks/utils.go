@@ -1,10 +1,32 @@
 package ckks
 
 import (
+	"math"
 	"math/big"
 
 	"github.com/ldsec/lattigo/v2/ring"
 )
+
+// StandardDeviation computes the scaled standard deviation of the input vector.
+func StandardDeviation(vec []float64, scale float64) (std float64) {
+	// We assume that the error is centered around zero
+	var err, tmp, mean, n float64
+
+	n = float64(len(vec))
+
+	for _, c := range vec {
+		mean += c
+	}
+
+	mean /= n
+
+	for _, c := range vec {
+		tmp = c - mean
+		err += tmp * tmp
+	}
+
+	return math.Sqrt(err/n) * scale
+}
 
 func scaleUpExact(value float64, n float64, q uint64) (res uint64) {
 

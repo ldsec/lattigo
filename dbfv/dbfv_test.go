@@ -64,7 +64,6 @@ func Test_DBFV(t *testing.T) {
 
 		testPublicKeyGen(testCtx, t)
 		testRelinKeyGen(testCtx, t)
-		testRelinKeyGenNaive(testCtx, t)
 		testKeyswitching(testCtx, t)
 		testPublicKeySwitching(testCtx, t)
 		testRotKeyGenRotRows(testCtx, t)
@@ -241,71 +240,6 @@ func testRelinKeyGen(testCtx *testContext, t *testing.T) {
 		verifyTestVectors(testCtx, decryptorSk0, coeffs, ciphertextMul, t)
 	})
 
-}
-
-func testRelinKeyGenNaive(testCtx *testContext, t *testing.T) {
-
-	evaluator := testCtx.evaluator
-	pk0 := testCtx.pk0
-	encryptorPk0 := testCtx.encryptorPk0
-	decryptorSk0 := testCtx.decryptorSk0
-	sk0Shards := testCtx.sk0Shards
-
-	t.Run(testString("RelinKeyGenNaive/", parties, testCtx.params), func(t *testing.T) {
-
-		type Party struct {
-			*RKGProtocolNaive
-			s      *ring.Poly
-			share1 RKGNaiveShareRoundOne
-			share2 RKGNaiveShareRoundTwo
-		}
-
-		rkgParties := make([]*Party, parties)
-
-		for i := range rkgParties {
-			p := new(Party)
-			p.RKGProtocolNaive = NewRKGProtocolNaive(testCtx.params)
-			p.s = sk0Shards[i].Get()
-			p.share1, p.share2 = p.AllocateShares()
-			rkgParties[i] = p
-		}
-
-		P0 := rkgParties[0]
-
-		// ROUND 1
-		for i, p := range rkgParties {
-			rkgParties[i].GenShareRoundOne(p.s, pk0.Get(), p.share1)
-			if i > 0 {
-				P0.AggregateShareRoundOne(p.share1, P0.share1, P0.share1)
-			}
-		}
-
-		// ROUND 2
-		for i, p := range rkgParties {
-			rkgParties[i].GenShareRoundTwo(P0.share1, p.s, pk0.Get(), p.share2)
-			if i > 0 {
-				P0.AggregateShareRoundTwo(p.share2, P0.share2, P0.share2)
-			}
-		}
-
-		evk := bfv.NewRelinKey(testCtx.params, 1)
-		P0.GenRelinearizationKey(P0.share2, evk)
-
-		coeffs, _, ciphertext := newTestVectors(testCtx, encryptorPk0, t)
-
-		for i := range coeffs {
-			coeffs[i] *= coeffs[i]
-			coeffs[i] %= testCtx.dbfvContext.ringT.Modulus[0]
-		}
-
-		ciphertextMul := bfv.NewCiphertext(testCtx.params, ciphertext.Degree()*2)
-		evaluator.Mul(ciphertext, ciphertext, ciphertextMul)
-
-		res := bfv.NewCiphertext(testCtx.params, 1)
-		evaluator.Relinearize(ciphertextMul, evk, res)
-
-		verifyTestVectors(testCtx, decryptorSk0, coeffs, ciphertextMul, t)
-	})
 }
 
 func testKeyswitching(testCtx *testContext, t *testing.T) {
@@ -562,12 +496,14 @@ func testRefresh(testCtx *testContext, t *testing.T) {
 		copy(coeffsTmp, coeffs)
 
 		// Finds the maximum multiplicative depth
+		bredParams := testCtx.dbfvContext.ringT.BredParams[0]
+		modulus := testCtx.dbfvContext.ringT.Modulus[0]
 		for {
 
 			testCtx.evaluator.Relinearize(testCtx.evaluator.MulNew(ciphertextTmp, ciphertextTmp), rlk, ciphertextTmp)
 
 			for j := range coeffsTmp {
-				coeffsTmp[j] = ring.BRed(coeffsTmp[j], coeffsTmp[j], testCtx.dbfvContext.ringT.Modulus[0], testCtx.dbfvContext.ringT.GetBredParams()[0])
+				coeffsTmp[j] = ring.BRed(coeffsTmp[j], coeffsTmp[j], modulus, bredParams)
 			}
 
 			if utils.EqualSliceUint64(coeffsTmp, encoder.DecodeUintNew(decryptorSk0.DecryptNew(ciphertextTmp))) {
@@ -606,7 +542,7 @@ func testRefresh(testCtx *testContext, t *testing.T) {
 			testCtx.evaluator.Relinearize(testCtx.evaluator.MulNew(ciphertext, ciphertext), rlk, ciphertext)
 
 			for j := range coeffs {
-				coeffs[j] = ring.BRed(coeffs[j], coeffs[j], testCtx.dbfvContext.ringT.Modulus[0], testCtx.dbfvContext.ringT.GetBredParams()[0])
+				coeffs[j] = ring.BRed(coeffs[j], coeffs[j], modulus, bredParams)
 			}
 		}
 

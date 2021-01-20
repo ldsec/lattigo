@@ -16,6 +16,7 @@ type RTGProtocol struct {
 	tmpSwitchKey    [][2]*ring.Poly
 	tmpPoly         [2]*ring.Poly
 	gaussianSampler *ring.GaussianSampler
+	sigma           float64
 }
 
 // RTGShare is a struct storing the share of the RTG protocol.
@@ -42,6 +43,7 @@ func NewRotKGProtocol(params *ckks.Parameters) (rtg *RTGProtocol) {
 	dckksContext := newDckksContext(params)
 
 	rtg.dckksContext = dckksContext
+	rtg.sigma = params.Sigma()
 
 	rtg.tmpSwitchKey = make([][2]*ring.Poly, rtg.dckksContext.beta)
 	for i := range rtg.tmpSwitchKey {
@@ -69,7 +71,7 @@ func NewRotKGProtocol(params *ckks.Parameters) (rtg *RTGProtocol) {
 	if err != nil {
 		panic(err)
 	}
-	rtg.gaussianSampler = ring.NewGaussianSampler(prng, dckksContext.ringQP, params.Sigma(), uint64(6*params.Sigma()))
+	rtg.gaussianSampler = ring.NewGaussianSampler(prng)
 
 	rtg.galElRotRow = (N << 1) - 1
 
@@ -112,7 +114,7 @@ func (rtg *RTGProtocol) genShare(sk *ring.Poly, galEl uint64, crp []*ring.Poly, 
 	for i := uint64(0); i < rtg.dckksContext.beta; i++ {
 
 		// e
-		rtg.gaussianSampler.Read(evakey[i])
+		rtg.gaussianSampler.Read(evakey[i], ringQP, rtg.sigma, uint64(6*rtg.sigma))
 		ringQP.NTTLazy(evakey[i], evakey[i])
 		ringQP.MForm(evakey[i], evakey[i])
 

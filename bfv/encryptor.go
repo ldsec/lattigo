@@ -62,13 +62,10 @@ type encryptor struct {
 	ringQP   *ring.Ring
 	polypool [3]*ring.Poly
 
-	baseconverter              *ring.FastBasisExtender
-	gaussianSamplerQ           *ring.GaussianSampler
-	uniformSamplerQ            *ring.UniformSampler
-	ternarySamplerMontgomeryQ  *ring.TernarySampler
-	gaussianSamplerQP          *ring.GaussianSampler
-	uniformSamplerQP           *ring.UniformSampler
-	ternarySamplerMontgomeryQP *ring.TernarySampler
+	baseconverter            *ring.FastBasisExtender
+	gaussianSampler          *ring.GaussianSampler
+	uniformSampler           *ring.UniformSampler
+	ternarySamplerMontgomery *ring.TernarySampler
 }
 
 type pkEncryptor struct {
@@ -121,17 +118,14 @@ func newEncryptor(params *Parameters) encryptor {
 	}
 
 	return encryptor{
-		params:                     params.Copy(),
-		ringQ:                      ringQ,
-		ringQP:                     ringQP,
-		polypool:                   [3]*ring.Poly{ringQP.NewPoly(), ringQP.NewPoly(), ringQP.NewPoly()},
-		baseconverter:              baseconverter,
-		gaussianSamplerQ:           ring.NewGaussianSampler(prng, ringQ, params.Sigma(), uint64(6*params.Sigma())),
-		uniformSamplerQ:            ring.NewUniformSampler(prng, ringQ),
-		ternarySamplerMontgomeryQ:  ring.NewTernarySampler(prng, ringQ, 0.5, true),
-		gaussianSamplerQP:          ring.NewGaussianSampler(prng, ringQP, params.Sigma(), uint64(6*params.Sigma())),
-		uniformSamplerQP:           ring.NewUniformSampler(prng, ringQP),
-		ternarySamplerMontgomeryQP: ring.NewTernarySampler(prng, ringQP, 0.5, true),
+		params:                   params.Copy(),
+		ringQ:                    ringQ,
+		ringQP:                   ringQP,
+		polypool:                 [3]*ring.Poly{ringQP.NewPoly(), ringQP.NewPoly(), ringQP.NewPoly()},
+		baseconverter:            baseconverter,
+		gaussianSampler:          ring.NewGaussianSampler(prng),
+		uniformSampler:           ring.NewUniformSampler(prng, ringQP),
+		ternarySamplerMontgomery: ring.NewTernarySampler(prng, ringQP, 0.5, true),
 	}
 }
 
@@ -183,7 +177,7 @@ func (encryptor *pkEncryptor) encrypt(p *Plaintext, ciphertext *Ciphertext, fast
 
 	if fast {
 
-		encryptor.ternarySamplerMontgomeryQ.Read(encryptor.polypool[2])
+		encryptor.ternarySamplerMontgomery.ReadLvl(uint64(len(ringQ.Modulus)-1), encryptor.polypool[2])
 		ringQ.NTTLazy(encryptor.polypool[2], encryptor.polypool[2])
 
 		ringQ.MulCoeffsMontgomery(encryptor.polypool[2], encryptor.pk.pk[0], encryptor.polypool[0])
@@ -193,17 +187,17 @@ func (encryptor *pkEncryptor) encrypt(p *Plaintext, ciphertext *Ciphertext, fast
 		ringQ.InvNTT(encryptor.polypool[1], ciphertext.value[1])
 
 		// ct[0] = pk[0]*u + e0
-		encryptor.gaussianSamplerQ.ReadAndAdd(ciphertext.value[0])
+		encryptor.gaussianSampler.ReadAndAdd(ciphertext.value[0], ringQ, encryptor.params.Sigma(), uint64(6*encryptor.params.Sigma()))
 
 		// ct[1] = pk[1]*u + e1
-		encryptor.gaussianSamplerQ.ReadAndAdd(ciphertext.value[1])
+		encryptor.gaussianSampler.ReadAndAdd(ciphertext.value[1], ringQ, encryptor.params.Sigma(), uint64(6*encryptor.params.Sigma()))
 
 	} else {
 
 		ringQP := encryptor.ringQP
 
 		// u
-		encryptor.ternarySamplerMontgomeryQP.Read(encryptor.polypool[2])
+		encryptor.ternarySamplerMontgomery.Read(encryptor.polypool[2])
 		ringQP.NTTLazy(encryptor.polypool[2], encryptor.polypool[2])
 
 		// ct[0] = pk[0]*u
@@ -215,10 +209,10 @@ func (encryptor *pkEncryptor) encrypt(p *Plaintext, ciphertext *Ciphertext, fast
 		ringQP.InvNTTLazy(encryptor.polypool[1], encryptor.polypool[1])
 
 		// ct[0] = pk[0]*u + e0
-		encryptor.gaussianSamplerQP.ReadAndAdd(encryptor.polypool[0])
+		encryptor.gaussianSampler.ReadAndAdd(encryptor.polypool[0], ringQP, encryptor.params.Sigma(), uint64(6*encryptor.params.Sigma()))
 
 		// ct[1] = pk[1]*u + e1
-		encryptor.gaussianSamplerQP.ReadAndAdd(encryptor.polypool[1])
+		encryptor.gaussianSampler.ReadAndAdd(encryptor.polypool[1], ringQP, encryptor.params.Sigma(), uint64(6*encryptor.params.Sigma()))
 
 		// We rescale the encryption of zero by the special prime, dividing the error by this prime
 		encryptor.baseconverter.ModDownPQ(uint64(len(ringQ.Modulus))-1, encryptor.polypool[0], ciphertext.value[0])
@@ -266,7 +260,7 @@ func (encryptor *skEncryptor) EncryptFromCRPFast(plaintext *Plaintext, ciphertex
 }
 
 func (encryptor *skEncryptor) encryptSample(plaintext *Plaintext, ciphertext *Ciphertext) {
-	encryptor.uniformSamplerQ.Read(encryptor.polypool[1])
+	encryptor.uniformSampler.Readlvl(uint64(len(encryptor.ringQ.Modulus)-1), encryptor.polypool[1])
 	encryptor.encrypt(plaintext, ciphertext, encryptor.polypool[1])
 }
 
@@ -285,7 +279,7 @@ func (encryptor *skEncryptor) encrypt(p *Plaintext, ciphertext *Ciphertext, crp 
 	ringQ.InvNTT(ciphertext.value[0], ciphertext.value[0])
 	ringQ.InvNTT(crp, ciphertext.value[1])
 
-	encryptor.gaussianSamplerQ.ReadAndAdd(ciphertext.value[0])
+	encryptor.gaussianSampler.ReadAndAdd(ciphertext.value[0], ringQ, encryptor.params.Sigma(), uint64(6*encryptor.params.Sigma()))
 
 	// ct = [-a*s + m + e , a]
 	encryptor.ringQ.Add(ciphertext.value[0], p.value, ciphertext.value[0])

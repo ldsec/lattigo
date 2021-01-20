@@ -65,7 +65,7 @@ type encoder struct {
 
 	indexMatrix []uint64
 	scaler      ring.Scaler
-	deltaMont   []uint64
+	deltaMont   []ring.FastBRedOperand
 
 	tmpPoly *ring.Poly
 	tmpPtRt *PlaintextRingT
@@ -122,17 +122,15 @@ func NewEncoder(params *Parameters) Encoder {
 }
 
 // GenLiftParams generates the lifting parameters.
-func GenLiftParams(ringQ *ring.Ring, t uint64) (deltaMont []uint64) {
+func GenLiftParams(ringQ *ring.Ring, t uint64) (deltaMont []ring.FastBRedOperand) {
 
 	delta := new(big.Int).Quo(ringQ.ModulusBigint, ring.NewUint(t))
 
-	deltaMont = make([]uint64, len(ringQ.Modulus))
+	deltaMont = make([]ring.FastBRedOperand, len(ringQ.Modulus))
 
 	tmp := new(big.Int)
-	bredParams := ringQ.GetBredParams()
 	for i, Qi := range ringQ.Modulus {
-		deltaMont[i] = tmp.Mod(delta, ring.NewUint(Qi)).Uint64()
-		deltaMont[i] = ring.MForm(deltaMont[i], Qi, bredParams[i])
+		deltaMont[i] = ring.NewFastBRedOperand(tmp.Mod(delta, ring.NewUint(Qi)).Uint64(), Qi)
 	}
 
 	return
@@ -234,28 +232,27 @@ func (encoder *encoder) ScaleUp(ptRt *PlaintextRingT, pt *Plaintext) {
 	scaleUp(encoder.ringQ, encoder.deltaMont, ptRt.value, pt.value)
 }
 
-func scaleUp(ringQ *ring.Ring, deltaMont []uint64, pIn, pOut *ring.Poly) {
+func scaleUp(ringQ *ring.Ring, deltaMont []ring.FastBRedOperand, pIn, pOut *ring.Poly) {
 
 	for i := len(ringQ.Modulus) - 1; i >= 0; i-- {
 		out := pOut.Coeffs[i]
 		in := pIn.Coeffs[0]
 		d := deltaMont[i]
 		qi := ringQ.Modulus[i]
-		mredParams := ringQ.GetMredParams()[i]
 
 		for j := uint64(0); j < ringQ.N; j = j + 8 {
 
 			x := (*[8]uint64)(unsafe.Pointer(&in[j]))
 			z := (*[8]uint64)(unsafe.Pointer(&out[j]))
 
-			z[0] = ring.MRed(x[0], d, qi, mredParams)
-			z[1] = ring.MRed(x[1], d, qi, mredParams)
-			z[2] = ring.MRed(x[2], d, qi, mredParams)
-			z[3] = ring.MRed(x[3], d, qi, mredParams)
-			z[4] = ring.MRed(x[4], d, qi, mredParams)
-			z[5] = ring.MRed(x[5], d, qi, mredParams)
-			z[6] = ring.MRed(x[6], d, qi, mredParams)
-			z[7] = ring.MRed(x[7], d, qi, mredParams)
+			z[0] = ring.FastBRed(x[0], d, qi)
+			z[1] = ring.FastBRed(x[1], d, qi)
+			z[2] = ring.FastBRed(x[2], d, qi)
+			z[3] = ring.FastBRed(x[3], d, qi)
+			z[4] = ring.FastBRed(x[4], d, qi)
+			z[5] = ring.FastBRed(x[5], d, qi)
+			z[6] = ring.FastBRed(x[6], d, qi)
+			z[7] = ring.FastBRed(x[7], d, qi)
 		}
 	}
 }

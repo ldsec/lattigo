@@ -76,6 +76,42 @@ func MRedConstant(x, y, q, qInv uint64) (r uint64) {
 	return
 }
 
+// FastBRedOperand is a struct storing y and floor((y * 2^64)/q).
+type FastBRedOperand struct {
+	Operand  uint64
+	Quotient uint64
+}
+
+// NewFastBRedOperand returns a new FastBRedOperand storing y and floor((y * 2^64)/q).
+func NewFastBRedOperand(x, q uint64) (t FastBRedOperand) {
+	return FastBRedOperand{x, FastBRedQuotient(x, q)}
+}
+
+// FastBRedQuotient returns floor((y * 2^64)/q).
+func FastBRedQuotient(y, q uint64) (quotient uint64) {
+	quotient, _ = bits.Div64(y, 0, q)
+	return quotient
+}
+
+// FastBRed returns (x*y) % q, y must be smaller than q.
+// y is an operand holding y and floor((y * 2^64)/q).
+func FastBRed(x uint64, y FastBRedOperand, q uint64) (r uint64) {
+	hw, _ := bits.Mul64(x, y.Quotient)
+	r = y.Operand*x - hw*q
+	if r >= q {
+		r -= q
+	}
+	return
+}
+
+// FastBRedConstant returns (x*y) % q, y must be smaller than q.
+// y is an operand holding y and floor((y * 2^64)/q).
+// The result is between 0 and 2*q-1.
+func FastBRedConstant(x uint64, y FastBRedOperand, q uint64) uint64 {
+	hw, _ := bits.Mul64(x, y.Quotient)
+	return y.Operand*x - hw*q
+}
+
 // BRedParams computes the parameters for the BRed algorithm.
 // Returns ((2^128)/q)/(2^64) and (2^128)/q mod 2^64.
 func BRedParams(q uint64) (params []uint64) {

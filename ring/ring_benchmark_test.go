@@ -42,6 +42,7 @@ func BenchmarkRing(b *testing.B) {
 		benchMRed(testContext, b)
 		benchBRed(testContext, b)
 		benchBRedAdd(testContext, b)
+		benchFastBRed(testContext, b)
 	}
 }
 
@@ -79,10 +80,10 @@ func benchSampling(testContext *testParams, b *testing.B) {
 
 	b.Run(testString("Sampling/Gaussian/", testContext.ringQ), func(b *testing.B) {
 
-		gaussianSampler := NewGaussianSampler(testContext.prng, testContext.ringQ, DefaultSigma, DefaultBound)
+		gaussianSampler := NewGaussianSampler(testContext.prng)
 
 		for i := 0; i < b.N; i++ {
-			gaussianSampler.ReadLvl(uint64(len(testContext.ringQ.Modulus)-1), pol)
+			gaussianSampler.ReadLvl(uint64(len(testContext.ringQ.Modulus)-1), pol, testContext.ringQ, DefaultSigma, DefaultBound)
 		}
 	})
 
@@ -141,27 +142,15 @@ func benchNTT(testContext *testParams, b *testing.B) {
 
 	p := testContext.uniformSamplerQ.ReadNew()
 
-	b.Run(testString("NTT/NTT/Montgomery/", testContext.ringQ), func(b *testing.B) {
+	b.Run(testString("NTT/", testContext.ringQ), func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			testContext.ringQ.NTT(p, p)
 		}
 	})
 
-	b.Run(testString("NTT/InvNTT/Montgomery/", testContext.ringQ), func(b *testing.B) {
+	b.Run(testString("InvNTT/", testContext.ringQ), func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			testContext.ringQ.InvNTT(p, p)
-		}
-	})
-
-	b.Run(testString("NTT/NTT/Barrett/", testContext.ringQ), func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			testContext.ringQ.NTTBarrett(p, p)
-		}
-	})
-
-	b.Run(testString("NTT/InvNTT/Barrett/", testContext.ringQ), func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			testContext.ringQ.InvNTTBarrett(p, p)
 		}
 	})
 }
@@ -170,6 +159,12 @@ func benchMulCoeffs(testContext *testParams, b *testing.B) {
 
 	p0 := testContext.uniformSamplerQ.ReadNew()
 	p1 := testContext.uniformSamplerQ.ReadNew()
+
+	b.Run(testString("MulCoeffs/MForm/", testContext.ringQ), func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			testContext.ringQ.MForm(p0, p1)
+		}
+	})
 
 	b.Run(testString("MulCoeffs/Montgomery/", testContext.ringQ), func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
@@ -194,6 +189,7 @@ func benchMulCoeffs(testContext *testParams, b *testing.B) {
 			testContext.ringQ.MulCoeffsConstant(p0, p1, p0)
 		}
 	})
+
 }
 
 func benchAddCoeffs(testContext *testParams, b *testing.B) {
@@ -456,6 +452,20 @@ func benchBRedAdd(testContext *testParams, b *testing.B) {
 	b.Run("BRedAdd", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			BRedAdd(x, q, u)
+		}
+	})
+}
+
+func benchFastBRed(testContext *testParams, b *testing.B) {
+	var q, x, y uint64 = 1033576114481528833, 0xFFFFFFF, 0xFFFFFFF
+
+	operand := NewFastBRedOperand(y, q)
+
+	b.ResetTimer()
+
+	b.Run("FastBRed", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			x = FastBRed(x, operand, q)
 		}
 	})
 }

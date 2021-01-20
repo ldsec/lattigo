@@ -103,7 +103,7 @@ func (btp *Bootstrapper) modUp(ct *Ciphertext) *Ciphertext {
 
 	//Centers the values around Q0 and extends the basis from Q0 to QL
 	Q := ringQ.Modulus[0]
-	bredparams := ringQ.GetBredParams()
+	bredparams := ringQ.BredParams
 
 	var coeff, qi uint64
 	for u := range ct.Value() {

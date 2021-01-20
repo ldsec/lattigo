@@ -972,22 +972,21 @@ func (r *Ring) SubScalarBigint(p1 *Poly, scalar *big.Int, p2 *Poly) {
 // MulScalar multiplies each coefficient of p1 by a scalar and writes the result on p2.
 func (r *Ring) MulScalar(p1 *Poly, scalar uint64, p2 *Poly) {
 	for i, Qi := range r.Modulus {
-		scalarMont := MForm(BRedAdd(scalar, Qi, r.BredParams[i]), Qi, r.BredParams[i])
-		mredParams := r.MredParams[i]
+		scalarBred := NewFastBRedOperand(BRedAdd(scalar, Qi, r.BredParams[i]), Qi)
 		p1tmp, p2tmp := p1.Coeffs[i], p2.Coeffs[i]
 		for j := uint64(0); j < r.N; j = j + 8 {
 
 			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
 			z := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
 
-			z[0] = MRed(x[0], scalarMont, Qi, mredParams)
-			z[1] = MRed(x[1], scalarMont, Qi, mredParams)
-			z[2] = MRed(x[2], scalarMont, Qi, mredParams)
-			z[3] = MRed(x[3], scalarMont, Qi, mredParams)
-			z[4] = MRed(x[4], scalarMont, Qi, mredParams)
-			z[5] = MRed(x[5], scalarMont, Qi, mredParams)
-			z[6] = MRed(x[6], scalarMont, Qi, mredParams)
-			z[7] = MRed(x[7], scalarMont, Qi, mredParams)
+			z[0] = FastBRed(x[0], scalarBred, Qi)
+			z[1] = FastBRed(x[1], scalarBred, Qi)
+			z[2] = FastBRed(x[2], scalarBred, Qi)
+			z[3] = FastBRed(x[3], scalarBred, Qi)
+			z[4] = FastBRed(x[4], scalarBred, Qi)
+			z[5] = FastBRed(x[5], scalarBred, Qi)
+			z[6] = FastBRed(x[6], scalarBred, Qi)
+			z[7] = FastBRed(x[7], scalarBred, Qi)
 		}
 	}
 }
@@ -996,22 +995,21 @@ func (r *Ring) MulScalar(p1 *Poly, scalar uint64, p2 *Poly) {
 func (r *Ring) MulScalarLvl(level uint64, p1 *Poly, scalar uint64, p2 *Poly) {
 	for i := uint64(0); i < level+1; i++ {
 		Qi := r.Modulus[i]
-		scalarMont := MForm(BRedAdd(scalar, Qi, r.BredParams[i]), Qi, r.BredParams[i])
+		scalarBred := NewFastBRedOperand(BRedAdd(scalar, Qi, r.BredParams[i]), Qi)
 		p1tmp, p2tmp := p1.Coeffs[i], p2.Coeffs[i]
-		mredParams := r.MredParams[i]
 		for j := uint64(0); j < r.N; j = j + 8 {
 
 			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
 			z := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
 
-			z[0] = MRed(x[0], scalarMont, Qi, mredParams)
-			z[1] = MRed(x[1], scalarMont, Qi, mredParams)
-			z[2] = MRed(x[2], scalarMont, Qi, mredParams)
-			z[3] = MRed(x[3], scalarMont, Qi, mredParams)
-			z[4] = MRed(x[4], scalarMont, Qi, mredParams)
-			z[5] = MRed(x[5], scalarMont, Qi, mredParams)
-			z[6] = MRed(x[6], scalarMont, Qi, mredParams)
-			z[7] = MRed(x[7], scalarMont, Qi, mredParams)
+			z[0] = FastBRed(x[0], scalarBred, Qi)
+			z[1] = FastBRed(x[1], scalarBred, Qi)
+			z[2] = FastBRed(x[2], scalarBred, Qi)
+			z[3] = FastBRed(x[3], scalarBred, Qi)
+			z[4] = FastBRed(x[4], scalarBred, Qi)
+			z[5] = FastBRed(x[5], scalarBred, Qi)
+			z[6] = FastBRed(x[6], scalarBred, Qi)
+			z[7] = FastBRed(x[7], scalarBred, Qi)
 		}
 	}
 }
@@ -1021,22 +1019,21 @@ func (r *Ring) MulScalarBigint(p1 *Poly, scalar *big.Int, p2 *Poly) {
 	scalarQi := new(big.Int)
 	for i, Qi := range r.Modulus {
 		scalarQi.Mod(scalar, NewUint(Qi))
-		scalarMont := MForm(BRedAdd(scalarQi.Uint64(), Qi, r.BredParams[i]), Qi, r.BredParams[i])
+		scalarBred := NewFastBRedOperand(BRedAdd(scalarQi.Uint64(), Qi, r.BredParams[i]), Qi)
 		p1tmp, p2tmp := p1.Coeffs[i], p2.Coeffs[i]
-		mredParams := r.MredParams[i]
 		for j := uint64(0); j < r.N; j = j + 8 {
 
 			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
 			z := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
 
-			z[0] = MRed(x[0], scalarMont, Qi, mredParams)
-			z[1] = MRed(x[1], scalarMont, Qi, mredParams)
-			z[2] = MRed(x[2], scalarMont, Qi, mredParams)
-			z[3] = MRed(x[3], scalarMont, Qi, mredParams)
-			z[4] = MRed(x[4], scalarMont, Qi, mredParams)
-			z[5] = MRed(x[5], scalarMont, Qi, mredParams)
-			z[6] = MRed(x[6], scalarMont, Qi, mredParams)
-			z[7] = MRed(x[7], scalarMont, Qi, mredParams)
+			z[0] = FastBRed(x[0], scalarBred, Qi)
+			z[1] = FastBRed(x[1], scalarBred, Qi)
+			z[2] = FastBRed(x[2], scalarBred, Qi)
+			z[3] = FastBRed(x[3], scalarBred, Qi)
+			z[4] = FastBRed(x[4], scalarBred, Qi)
+			z[5] = FastBRed(x[5], scalarBred, Qi)
+			z[6] = FastBRed(x[6], scalarBred, Qi)
+			z[7] = FastBRed(x[7], scalarBred, Qi)
 		}
 	}
 }
@@ -1048,22 +1045,21 @@ func (r *Ring) MulScalarBigintLvl(level uint64, p1 *Poly, scalar *big.Int, p2 *P
 	for i := uint64(0); i < level+1; i++ {
 		Qi := r.Modulus[i]
 		scalarQi.Mod(scalar, NewUint(Qi))
-		scalarMont := MForm(BRedAdd(scalarQi.Uint64(), Qi, r.BredParams[i]), Qi, r.BredParams[i])
+		scalarBred := NewFastBRedOperand(BRedAdd(scalarQi.Uint64(), Qi, r.BredParams[i]), Qi)
 		p1tmp, p2tmp := p1.Coeffs[i], p2.Coeffs[i]
-		mredParams := r.MredParams[i]
 		for j := uint64(0); j < r.N; j = j + 8 {
 
 			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
 			z := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
 
-			z[0] = MRed(x[0], scalarMont, Qi, mredParams)
-			z[1] = MRed(x[1], scalarMont, Qi, mredParams)
-			z[2] = MRed(x[2], scalarMont, Qi, mredParams)
-			z[3] = MRed(x[3], scalarMont, Qi, mredParams)
-			z[4] = MRed(x[4], scalarMont, Qi, mredParams)
-			z[5] = MRed(x[5], scalarMont, Qi, mredParams)
-			z[6] = MRed(x[6], scalarMont, Qi, mredParams)
-			z[7] = MRed(x[7], scalarMont, Qi, mredParams)
+			z[0] = FastBRed(x[0], scalarBred, Qi)
+			z[1] = FastBRed(x[1], scalarBred, Qi)
+			z[2] = FastBRed(x[2], scalarBred, Qi)
+			z[3] = FastBRed(x[3], scalarBred, Qi)
+			z[4] = FastBRed(x[4], scalarBred, Qi)
+			z[5] = FastBRed(x[5], scalarBred, Qi)
+			z[6] = FastBRed(x[6], scalarBred, Qi)
+			z[7] = FastBRed(x[7], scalarBred, Qi)
 		}
 	}
 }
@@ -1349,37 +1345,6 @@ func (r *Ring) BitReverse(p1, p2 *Poly) {
 					p2tmp[i], p2tmp[j] = p2tmp[j], p2tmp[i]
 				}
 			}
-		}
-	}
-}
-
-// Rotate applies a Galois automorphism on p1 in NTT form,
-// rotating the coefficients to the right by n positions, and writes the result on p2.
-// It requires the data to be permuted in bit-reversal order before applying the NTT.
-func (r *Ring) Rotate(p1 *Poly, n uint64, p2 *Poly) {
-
-	var root, gal uint64
-
-	n &= (1 << r.N) - 1
-
-	for i, qi := range r.Modulus {
-
-		mredParams := r.MredParams[i]
-
-		root = MRed(r.PsiMont[i], r.PsiMont[i], qi, mredParams)
-
-		root = modexpMontgomery(root, n, qi, mredParams, r.BredParams[i])
-
-		gal = MForm(1, qi, r.BredParams[i])
-
-		p1tmp, p2tmp := p1.Coeffs[i], p1.Coeffs[i]
-
-		for j := uint64(1); j < r.N; j++ {
-
-			gal = MRed(gal, root, qi, mredParams)
-
-			p2tmp[j] = MRed(p1tmp[j], gal, qi, mredParams)
-
 		}
 	}
 }

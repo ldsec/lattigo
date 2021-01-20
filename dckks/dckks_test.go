@@ -75,7 +75,6 @@ func TestDCKKS(t *testing.T) {
 
 		testPublicKeyGen(testCtx, t)
 		testRelinKeyGen(testCtx, t)
-		testRelinKeyGenNaive(testCtx, t)
 		testKeyswitching(testCtx, t)
 		testPublicKeySwitching(testCtx, t)
 		testRotKeyGenConjugate(testCtx, t)
@@ -252,70 +251,6 @@ func testRelinKeyGen(testCtx *testContext, t *testing.T) {
 
 	})
 
-}
-
-func testRelinKeyGenNaive(testCtx *testContext, t *testing.T) {
-
-	evaluator := testCtx.evaluator
-	pk0 := testCtx.pk0
-	encryptorPk0 := testCtx.encryptorPk0
-	decryptorSk0 := testCtx.decryptorSk0
-	sk0Shards := testCtx.sk0Shards
-
-	t.Run(testString("RelinKeyGenNaive/", parties, testCtx.params), func(t *testing.T) {
-
-		type Party struct {
-			*RKGProtocolNaive
-			s      *ring.Poly
-			share1 RKGNaiveShareRoundOne
-			share2 RKGNaiveShareRoundTwo
-		}
-
-		rkgParties := make([]*Party, parties)
-
-		for i := range rkgParties {
-			p := new(Party)
-			p.RKGProtocolNaive = NewRKGProtocolNaive(testCtx.params)
-			p.s = sk0Shards[i].Get()
-			p.share1, p.share2 = p.AllocateShares()
-			rkgParties[i] = p
-		}
-
-		P0 := rkgParties[0]
-
-		// ROUND 1
-		for i, p := range rkgParties {
-			rkgParties[i].GenShareRoundOne(p.s, pk0.Get(), p.share1)
-			if i > 0 {
-				P0.AggregateShareRoundOne(p.share1, P0.share1, P0.share1)
-			}
-		}
-
-		// ROUND 2
-		for i, p := range rkgParties {
-			rkgParties[i].GenShareRoundTwo(P0.share1, p.s, pk0.Get(), p.share2)
-			if i > 0 {
-				P0.AggregateShareRoundTwo(p.share2, P0.share2, P0.share2)
-			}
-		}
-
-		evk := ckks.NewRelinKey(testCtx.params)
-		P0.GenRelinearizationKey(P0.share2, evk)
-
-		coeffs, _, ciphertext := newTestVectors(testCtx, encryptorPk0, 1, t)
-
-		for i := range coeffs {
-			coeffs[i] *= coeffs[i]
-		}
-
-		evaluator.MulRelin(ciphertext, ciphertext, evk, ciphertext)
-
-		require.Equal(t, ciphertext.Degree(), uint64(1))
-
-		evaluator.Rescale(ciphertext, testCtx.params.Scale(), ciphertext)
-
-		verifyTestVectors(testCtx, decryptorSk0, coeffs, ciphertext, t)
-	})
 }
 
 func testKeyswitching(testCtx *testContext, t *testing.T) {

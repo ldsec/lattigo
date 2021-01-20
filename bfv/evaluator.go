@@ -56,7 +56,7 @@ type evaluator struct {
 	t     uint64
 	pHalf *big.Int
 
-	deltaMont []uint64
+	deltaMont []ring.FastBRedOperand
 
 	poolQ    [][]*ring.Poly
 	poolQmul [][]*ring.Poly
@@ -542,12 +542,11 @@ func (eval *evaluator) mulPlaintextRingT(ct0 *Ciphertext, ptRt *PlaintextRingT, 
 
 			tmp := ctOut.value[i].Coeffs[j]
 			qi := ringQ.Modulus[j]
-			nttPsi := ringQ.GetNttPsi()[j]
-			bredParams := ringQ.GetBredParams()[j]
-			mredParams := ringQ.GetMredParams()[j]
+			nttPsi := ringQ.NttPsi[j]
+			mredParams := ringQ.MredParams[j]
 
 			// Transforms the plaintext in the NTT domain of that qi
-			ring.NTTLazy(coeffs, coeffsNTT, ringQ.N, nttPsi, qi, mredParams, bredParams)
+			ring.NTTLazy(coeffs, coeffsNTT, ringQ.N, nttPsi, qi)
 
 			// Multiplies NTT_qi(pt) * NTT_qi(ct)
 			for k := uint64(0); k < eval.ringQ.N; k = k + 8 {
@@ -897,9 +896,7 @@ func (eval *evaluator) decomposeAndSplitNTT(level, beta uint64, c2NTT, c2InvNTT,
 	for x := uint64(0); x < level+1; x++ {
 
 		qi := ringQ.Modulus[x]
-		nttPsi := ringQ.GetNttPsi()[x]
-		bredParams := ringQ.GetBredParams()[x]
-		mredParams := ringQ.GetMredParams()[x]
+		nttPsi := ringQ.NttPsi[x]
 
 		if p0idxst <= x && x < p0idxed {
 			p0tmp := c2NTT.Coeffs[x]
@@ -908,7 +905,7 @@ func (eval *evaluator) decomposeAndSplitNTT(level, beta uint64, c2NTT, c2InvNTT,
 				p1tmp[j] = p0tmp[j]
 			}
 		} else {
-			ring.NTTLazy(c2QiQ.Coeffs[x], c2QiQ.Coeffs[x], ringQ.N, nttPsi, qi, mredParams, bredParams)
+			ring.NTTLazy(c2QiQ.Coeffs[x], c2QiQ.Coeffs[x], ringQ.N, nttPsi, qi)
 		}
 	}
 	// c2QiP = c2 mod qi mod pj
