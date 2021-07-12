@@ -37,7 +37,6 @@ func BenchmarkCKKSScheme(b *testing.B) {
 		benchDecrypt(testContext, b)
 		benchEvaluator(testContext, b)
 		benchInnerSum(testContext, b)
-		benchHoistedRotations(testContext, b)
 	}
 }
 
@@ -203,7 +202,7 @@ func benchEvaluator(testContext *testParams, b *testing.B) {
 			b.Skip("#Pi is empty")
 		}
 
-		ciphertext1.SetScale(testContext.params.Scale() * testContext.params.Scale())
+		ciphertext1.Scale = testContext.params.Scale() * testContext.params.Scale()
 
 		for i := 0; i < b.N; i++ {
 			if err := eval.Rescale(ciphertext1, testContext.params.Scale(), ciphertext2); err != nil {
@@ -298,48 +297,4 @@ func benchInnerSum(testContext *testParams, b *testing.B) {
 		}
 	})
 
-}
-
-func benchHoistedRotations(testContext *testParams, b *testing.B) {
-
-	b.Run(testString(testContext, "HoistedRotations/"), func(b *testing.B) {
-
-		if testContext.params.PCount() == 0 {
-			b.Skip("#Pi is empty")
-		}
-
-		rotkey := testContext.kgen.GenRotationKeysForRotations([]int{5}, false, testContext.sk)
-		evaluator := testContext.evaluator.WithKey(rlwe.EvaluationKey{Rlk: testContext.rlk, Rtks: rotkey}).(*evaluator)
-
-		ciphertext := NewCiphertextRandom(testContext.prng, testContext.params, 1, testContext.params.MaxLevel(), testContext.params.Scale())
-
-		ringQ := testContext.ringQ
-		ringP := testContext.ringP
-
-		c2NTT := ciphertext.Value[1]
-		c2InvNTT := ringQ.NewPoly()
-		ringQ.InvNTTLvl(ciphertext.Level(), c2NTT, c2InvNTT)
-
-		c2QiQDecomp := make([]*ring.Poly, testContext.params.Beta())
-		c2QiPDecomp := make([]*ring.Poly, testContext.params.Beta())
-
-		for i := 0; i < testContext.params.Beta(); i++ {
-			c2QiQDecomp[i] = ringQ.NewPoly()
-			c2QiPDecomp[i] = ringP.NewPoly()
-		}
-
-		b.Run(testString(testContext, "/DecomposeNTT/"), func(b *testing.B) {
-			for i := 0; i < b.N; i++ {
-				for j := 0; j < testContext.params.Beta(); j++ {
-					evaluator.decomposeAndSplitNTT(ciphertext.Level(), j, c2NTT, c2InvNTT, c2QiQDecomp[j], c2QiPDecomp[j])
-				}
-			}
-		})
-
-		b.Run(testString(testContext, "RotateHoisted/"), func(b *testing.B) {
-			for i := 0; i < b.N; i++ {
-				evaluator.permuteNTTHoisted(ciphertext.Level(), ciphertext.Value[0], ciphertext.Value[1], c2QiQDecomp, c2QiPDecomp, 5, ciphertext.Value[0], ciphertext.Value[1])
-			}
-		})
-	})
 }

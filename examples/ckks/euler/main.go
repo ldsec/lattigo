@@ -42,7 +42,7 @@ func example() {
 
 	rlk := kgen.GenRelinearizationKey(sk)
 
-	encryptor := ckks.NewEncryptorFromSk(params, sk)
+	encryptor := ckks.NewEncryptor(params, sk)
 
 	decryptor := ckks.NewDecryptor(params, sk)
 
@@ -119,7 +119,7 @@ func example() {
 
 	start = time.Now()
 
-	ciphertext.MulScale(r)
+	ciphertext.Scale *= r
 
 	fmt.Printf("Done in %s \n", time.Since(start))
 
@@ -150,7 +150,7 @@ func example() {
 
 	poly := ckks.NewPoly(coeffs)
 
-	if ciphertext, err = evaluator.EvaluatePoly(ciphertext, poly, ciphertext.Scale()); err != nil {
+	if ciphertext, err = evaluator.EvaluatePoly(ciphertext, poly, ciphertext.Scale); err != nil {
 		panic(err)
 	}
 
@@ -196,13 +196,13 @@ func example() {
 
 }
 
-func printDebug(params ckks.Parameters, ciphertext *ckks.Ciphertext, valuesWant []complex128, decryptor ckks.Decryptor, encoder ckks.Encoder) (valuesTest []complex128) {
+func printDebug(params ckks.Parameters, ciphertext *ckks.Ciphertext, valuesWant []complex128, decryptor *ckks.Decryptor, encoder ckks.Encoder) (valuesTest []complex128) {
 
 	valuesTest = encoder.Decode(decryptor.DecryptNew(ciphertext), params.LogSlots())
 
 	fmt.Println()
 	fmt.Printf("Level: %d (logQ = %d)\n", ciphertext.Level(), params.LogQLvl(ciphertext.Level()))
-	fmt.Printf("Scale: 2^%f\n", math.Log2(ciphertext.Scale()))
+	fmt.Printf("Scale: 2^%f\n", math.Log2(ciphertext.Scale))
 	fmt.Printf("ValuesTest: %6.10f %6.10f %6.10f %6.10f...\n", valuesTest[0], valuesTest[1], valuesTest[2], valuesTest[3])
 	fmt.Printf("ValuesWant: %6.10f %6.10f %6.10f %6.10f...\n", valuesWant[0], valuesWant[1], valuesWant[2], valuesWant[3])
 	fmt.Println()

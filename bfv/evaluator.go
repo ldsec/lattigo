@@ -53,12 +53,12 @@ type Evaluator interface {
 type evaluator struct {
 	*evaluatorBase
 	*evaluatorBuffers
+	*rlwe.KeySwitcher
 
 	rlk  *rlwe.RelinearizationKey
 	rtks *rlwe.RotationKeySet
 
 	baseconverterQ1Q2 *ring.FastBasisExtender
-	baseconverterQ1P  *ring.FastBasisExtender
 }
 
 type evaluatorBase struct {
@@ -67,8 +67,6 @@ type evaluatorBase struct {
 	ringP    *ring.Ring
 	ringQMul *ring.Ring
 
-	decomposer *ring.Decomposer
-
 	t     uint64
 	pHalf *big.Int
 
@@ -76,7 +74,6 @@ type evaluatorBase struct {
 }
 
 func newEvaluatorPrecomp(params Parameters) *evaluatorBase {
-	var err error
 	ev := new(evaluatorBase)
 
 	ev.params = params
@@ -84,30 +81,19 @@ func newEvaluatorPrecomp(params Parameters) *evaluatorBase {
 	ev.t = params.T()
 
 	ev.ringQ = params.RingQ()
-
-	qiMul := ring.GenerateNTTPrimesP(61, 2*params.N(), params.QCount())
-	if ev.ringQMul, err = ring.NewRing(params.N(), qiMul); err != nil {
-		panic(err)
-	}
+	ev.ringP = params.RingP()
+	ev.ringQMul = params.RingQMul()
 
 	ev.pHalf = new(big.Int).Rsh(ev.ringQMul.ModulusBigint, 1)
 	ev.deltaMont = GenLiftParams(ev.ringQ, params.T())
 
-	if params.PCount() != 0 {
-		ev.ringP = params.RingP()
-		ev.decomposer = ring.NewDecomposer(ev.ringQ.Modulus, ev.ringP.Modulus)
-	}
 	return ev
 }
 
 type evaluatorBuffers struct {
 	poolQ    [][]*ring.Poly
 	poolQmul [][]*ring.Poly
-
-	poolQKS [4]*ring.Poly
-	poolPKS [3]*ring.Poly
-
-	tmpPt *Plaintext
+	tmpPt    *Plaintext
 }
 
 func newEvaluatorBuffer(eval *evaluatorBase) *evaluatorBuffers {
@@ -121,10 +107,6 @@ func newEvaluatorBuffer(eval *evaluatorBase) *evaluatorBuffers {
 			evb.poolQ[i][j] = eval.ringQ.NewPoly()
 			evb.poolQmul[i][j] = eval.ringQMul.NewPoly()
 		}
-	}
-	if eval.ringP != nil {
-		evb.poolQKS = [4]*ring.Poly{eval.ringQ.NewPoly(), eval.ringQ.NewPoly(), eval.ringQ.NewPoly(), eval.ringQ.NewPoly()}
-		evb.poolPKS = [3]*ring.Poly{eval.ringP.NewPoly(), eval.ringP.NewPoly(), eval.ringP.NewPoly()}
 	}
 
 	evb.tmpPt = NewPlaintext(eval.params)
@@ -141,7 +123,7 @@ func NewEvaluator(params Parameters, evaluationKey rlwe.EvaluationKey) Evaluator
 	ev.evaluatorBuffers = newEvaluatorBuffer(ev.evaluatorBase)
 	ev.baseconverterQ1Q2 = ring.NewFastBasisExtender(ev.ringQ, ev.ringQMul)
 	if params.PCount() != 0 {
-		ev.baseconverterQ1P = ring.NewFastBasisExtender(ev.ringQ, ev.ringP)
+		ev.KeySwitcher = rlwe.NewKeySwitcher(params.Parameters)
 	}
 	ev.rlk = evaluationKey.Rlk
 	ev.rtks = evaluationKey.Rtks
@@ -169,9 +151,9 @@ func NewEvaluators(params Parameters, evaluationKey rlwe.EvaluationKey, n int) [
 func (eval *evaluator) ShallowCopy() Evaluator {
 	return &evaluator{
 		evaluatorBase:     eval.evaluatorBase,
+		KeySwitcher:       eval.KeySwitcher.ShallowCopy(),
 		evaluatorBuffers:  newEvaluatorBuffer(eval.evaluatorBase),
 		baseconverterQ1Q2: eval.baseconverterQ1Q2.ShallowCopy(),
-		baseconverterQ1P:  eval.baseconverterQ1P.ShallowCopy(),
 		rlk:               eval.rlk,
 		rtks:              eval.rtks,
 	}
@@ -182,9 +164,9 @@ func (eval *evaluator) ShallowCopy() Evaluator {
 func (eval *evaluator) WithKey(evaluationKey rlwe.EvaluationKey) Evaluator {
 	return &evaluator{
 		evaluatorBase:     eval.evaluatorBase,
+		KeySwitcher:       eval.KeySwitcher,
 		evaluatorBuffers:  eval.evaluatorBuffers,
 		baseconverterQ1Q2: eval.baseconverterQ1Q2,
-		baseconverterQ1P:  eval.baseconverterQ1P,
 		rlk:               evaluationKey.Rlk,
 		rtks:              evaluationKey.Rtks,
 	}
@@ -497,7 +479,7 @@ func (eval *evaluator) Mul(op0 *Ciphertext, op1 Operand, ctOut *Ciphertext) {
 func (eval *evaluator) mulPlaintextMul(ct0 *Ciphertext, ptRt *PlaintextMul, ctOut *Ciphertext) {
 	for i := range ct0.Value {
 		eval.ringQ.NTTLazy(ct0.Value[i], ctOut.Value[i])
-		eval.ringQ.MulCoeffsMontgomeryConstant(ctOut.Value[i], ptRt.value, ctOut.Value[i])
+		eval.ringQ.MulCoeffsMontgomeryConstant(ctOut.Value[i], ptRt.Value, ctOut.Value[i])
 		eval.ringQ.InvNTT(ctOut.Value[i], ctOut.Value[i])
 	}
 }
@@ -505,7 +487,7 @@ func (eval *evaluator) mulPlaintextMul(ct0 *Ciphertext, ptRt *PlaintextMul, ctOu
 func (eval *evaluator) mulPlaintextRingT(ct0 *Ciphertext, ptRt *PlaintextRingT, ctOut *Ciphertext) {
 	ringQ := eval.ringQ
 
-	coeffs := ptRt.value.Coeffs[0]
+	coeffs := ptRt.Value.Coeffs[0]
 	coeffsNTT := eval.poolQ[0][0].Coeffs[0]
 
 	for i := range ct0.Value {
@@ -561,14 +543,14 @@ func (eval *evaluator) MulNew(op0 *Ciphertext, op1 Operand) (ctOut *Ciphertext) 
 func (eval *evaluator) relinearize(ct0 *Ciphertext, ctOut *Ciphertext) {
 
 	if ctOut != ct0 {
-		eval.ringQ.Copy(ct0.Value[0], ctOut.Value[0])
-		eval.ringQ.Copy(ct0.Value[1], ctOut.Value[1])
+		ring.CopyValues(ct0.Value[0], ctOut.Value[0])
+		ring.CopyValues(ct0.Value[1], ctOut.Value[1])
 	}
 
 	for deg := uint64(ct0.Degree()); deg > 1; deg-- {
-		eval.switchKeysInPlace(ct0.Value[deg], eval.rlk.Keys[deg-2], eval.poolQKS[1], eval.poolQKS[2])
-		eval.ringQ.Add(ctOut.Value[0], eval.poolQKS[1], ctOut.Value[0])
-		eval.ringQ.Add(ctOut.Value[1], eval.poolQKS[2], ctOut.Value[1])
+		eval.SwitchKeysInPlace(ct0.Value[deg].Level(), ct0.Value[deg], eval.rlk.Keys[deg-2], eval.PoolQ[1], eval.PoolQ[2])
+		eval.ringQ.Add(ctOut.Value[0], eval.PoolQ[1], ctOut.Value[0])
+		eval.ringQ.Add(ctOut.Value[1], eval.PoolQ[2], ctOut.Value[1])
 	}
 
 	ctOut.SetValue(ctOut.Value[:2])
@@ -623,10 +605,10 @@ func (eval *evaluator) SwitchKeys(ct0 *Ciphertext, switchKey *rlwe.SwitchingKey,
 		panic("cannot SwitchKeys: input and output must be of degree 1 to allow key switching")
 	}
 
-	eval.switchKeysInPlace(ct0.Value[1], switchKey, eval.poolQKS[1], eval.poolQKS[2])
+	eval.SwitchKeysInPlace(ct0.Value[1].Level(), ct0.Value[1], switchKey, eval.PoolQ[1], eval.PoolQ[2])
 
-	eval.ringQ.Add(ct0.Value[0], eval.poolQKS[1], ctOut.Value[0])
-	eval.ringQ.Copy(eval.poolQKS[2], ctOut.Value[1])
+	eval.ringQ.Add(ct0.Value[0], eval.PoolQ[1], ctOut.Value[0])
+	ring.CopyValues(eval.PoolQ[2], ctOut.Value[1])
 }
 
 // SwitchKeysNew applies the key-switching procedure to the ciphertext ct0 and creates a new ciphertext to store the result. It requires as an additional input a valid switching-key:
@@ -720,94 +702,21 @@ func (eval *evaluator) InnerSum(ct0 *Ciphertext, ctOut *Ciphertext) {
 
 // permute performs a column rotation on ct0 and returns the result in ctOut
 func (eval *evaluator) permute(ct0 *Ciphertext, generator uint64, switchKey *rlwe.SwitchingKey, ctOut *Ciphertext) {
+	eval.SwitchKeysInPlace(ct0.Value[1].Level(), ct0.Value[1], switchKey, eval.PoolQ[1], eval.PoolQ[2])
 
-	eval.switchKeysInPlace(ct0.Value[1], switchKey, eval.poolQKS[1], eval.poolQKS[2])
+	eval.ringQ.Add(eval.PoolQ[1], ct0.Value[0], eval.PoolQ[1])
 
-	eval.ringQ.Add(eval.poolQKS[1], ct0.Value[0], eval.poolQKS[1])
-
-	eval.ringQ.Permute(eval.poolQKS[1], generator, ctOut.Value[0])
-	eval.ringQ.Permute(eval.poolQKS[2], generator, ctOut.Value[1])
+	eval.ringQ.Permute(eval.PoolQ[1], generator, ctOut.Value[0])
+	eval.ringQ.Permute(eval.PoolQ[2], generator, ctOut.Value[1])
 }
 
-// switchKeys applies the general key-switching procedure of the form [c0 + cx*evakey[0], c1 + cx*evakey[1]]
-func (eval *evaluator) switchKeysInPlace(cx *ring.Poly, evakey *rlwe.SwitchingKey, pool2Q, pool3Q *ring.Poly) {
-
-	ringQ := eval.ringQ
-	ringP := eval.ringP
-
-	pool2P := eval.poolPKS[1]
-	pool3P := eval.poolPKS[2]
-
-	level := len(ringQ.Modulus) - 1
-
-	c2QiQ := eval.poolQKS[0]
-	c2QiP := eval.poolPKS[0]
-	c2 := eval.poolQKS[3]
-
-	evakey0Q := new(ring.Poly)
-	evakey1Q := new(ring.Poly)
-	evakey0P := new(ring.Poly)
-	evakey1P := new(ring.Poly)
-
-	// We switch the element on which the key-switching operation will be conducted out of the NTT domain
-	ringQ.NTTLazy(cx, c2)
-
-	var reduce int
-
-	// Key switching with CRT decomposition for the Qi
-	for i := 0; i < eval.params.Beta(); i++ {
-
-		eval.decomposeAndSplitNTT(level, i, c2, cx, c2QiQ, c2QiP)
-
-		evakey0Q.Coeffs = evakey.Value[i][0].Coeffs[:level+1]
-		evakey1Q.Coeffs = evakey.Value[i][1].Coeffs[:level+1]
-		evakey0P.Coeffs = evakey.Value[i][0].Coeffs[level+1:]
-		evakey1P.Coeffs = evakey.Value[i][1].Coeffs[level+1:]
-
-		if i == 0 {
-			ringQ.MulCoeffsMontgomeryLvl(level, evakey0Q, c2QiQ, pool2Q)
-			ringQ.MulCoeffsMontgomeryLvl(level, evakey1Q, c2QiQ, pool3Q)
-			ringP.MulCoeffsMontgomery(evakey0P, c2QiP, pool2P)
-			ringP.MulCoeffsMontgomery(evakey1P, c2QiP, pool3P)
-		} else {
-			ringQ.MulCoeffsMontgomeryAndAddNoModLvl(level, evakey0Q, c2QiQ, pool2Q)
-			ringQ.MulCoeffsMontgomeryAndAddNoModLvl(level, evakey1Q, c2QiQ, pool3Q)
-			ringP.MulCoeffsMontgomeryAndAddNoMod(evakey0P, c2QiP, pool2P)
-			ringP.MulCoeffsMontgomeryAndAddNoMod(evakey1P, c2QiP, pool3P)
-		}
-
-		if reduce&3 == 3 {
-			ringQ.ReduceLvl(level, pool2Q, pool2Q)
-			ringQ.ReduceLvl(level, pool3Q, pool3Q)
-			ringP.Reduce(pool2P, pool2P)
-			ringP.Reduce(pool3P, pool3P)
-		}
-
-		reduce++
-	}
-
-	if (reduce-1)&3 != 3 {
-		ringQ.ReduceLvl(level, pool2Q, pool2Q)
-		ringQ.ReduceLvl(level, pool3Q, pool3Q)
-		ringP.Reduce(pool2P, pool2P)
-		ringP.Reduce(pool3P, pool3P)
-	}
-
-	ringQ.InvNTTLazy(pool2Q, pool2Q)
-	ringQ.InvNTTLazy(pool3Q, pool3Q)
-	ringP.InvNTTLazy(pool2P, pool2P)
-	ringP.InvNTTLazy(pool3P, pool3P)
-
-	eval.baseconverterQ1P.ModDownSplitPQ(level, pool2Q, pool2P, pool2Q)
-	eval.baseconverterQ1P.ModDownSplitPQ(level, pool3Q, pool3P, pool3Q)
-}
 func (eval *evaluator) getRingQElem(op Operand) *rlwe.Element {
 	switch o := op.(type) {
 	case *Ciphertext, *Plaintext:
 		return o.El()
 	case *PlaintextRingT:
-		scaleUp(eval.ringQ, eval.deltaMont, o.value, eval.tmpPt.value)
-		return eval.tmpPt.Element
+		scaleUp(eval.ringQ, eval.deltaMont, o.Value, eval.tmpPt.Value)
+		return eval.tmpPt.El()
 	default:
 		panic(fmt.Errorf("invalid operand type for operation: %T", o))
 	}
@@ -872,37 +781,4 @@ func evaluateInPlaceUnary(el0, elOut *rlwe.Element, evaluate func(*ring.Poly, *r
 	for i := range el0.Value {
 		evaluate(el0.Value[i], elOut.Value[i])
 	}
-}
-
-// decomposeAndSplitNTT decomposes the input polynomial into the target CRT basis.
-func (eval *evaluator) decomposeAndSplitNTT(level, beta int, c2NTT, c2InvNTT, c2QiQ, c2QiP *ring.Poly) {
-
-	ringQ := eval.ringQ
-	ringP := eval.ringP
-
-	eval.decomposer.DecomposeAndSplit(level, beta, c2InvNTT, c2QiQ, c2QiP)
-
-	p0idxst := beta * eval.params.PCount()
-	p0idxed := p0idxst + eval.decomposer.Xalpha()[beta]
-
-	// c2_qi = cx mod qi mod qi
-	for x := 0; x < level+1; x++ {
-
-		qi := ringQ.Modulus[x]
-		nttPsi := ringQ.NttPsi[x]
-		bredParams := ringQ.BredParams[x]
-		mredParams := ringQ.MredParams[x]
-
-		if p0idxst <= x && x < p0idxed {
-			p0tmp := c2NTT.Coeffs[x]
-			p1tmp := c2QiQ.Coeffs[x]
-			for j := 0; j < ringQ.N; j++ {
-				p1tmp[j] = p0tmp[j]
-			}
-		} else {
-			ring.NTTLazy(c2QiQ.Coeffs[x], c2QiQ.Coeffs[x], ringQ.N, nttPsi, qi, mredParams, bredParams)
-		}
-	}
-	// c2QiP = c2 mod qi mod pj
-	ringP.NTTLazy(c2QiP, c2QiP)
 }

@@ -1,21 +1,28 @@
 package ckks
 
 import (
-	"github.com/ldsec/lattigo/v2/ring"
+	"github.com/ldsec/lattigo/v2/rlwe"
 )
 
 // Plaintext is is a Element with only one Poly.
 type Plaintext struct {
-	*Element
-	value *ring.Poly
+	*rlwe.Plaintext
+	Scale float64
 }
 
 // NewPlaintext creates a new Plaintext of level level and scale scale.
 func NewPlaintext(params Parameters, level int, scale float64) *Plaintext {
+	pt := &Plaintext{Plaintext: rlwe.NewPlaintext(params.Parameters, level), Scale: scale}
+	pt.Value.IsNTT = true
+	return pt
+}
 
-	plaintext := &Plaintext{Element: newElement(params, 0, level, scale)}
-	plaintext.value = plaintext.Element.Value[0]
-	plaintext.Element.Element.IsNTT = true
+// ScalingFactor returns the scaling factor of the plaintext
+func (p *Plaintext) ScalingFactor() float64 {
+	return p.Scale
+}
 
-	return plaintext
+// SetScalingFactor sets the scaling factor of the target plaintext
+func (p *Plaintext) SetScalingFactor(scale float64) {
+	p.Scale = scale
 }

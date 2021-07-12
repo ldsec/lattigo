@@ -8,17 +8,17 @@ import (
 
 // SecretKey is a type for generic RLWE secret keys.
 type SecretKey struct {
-	Value *ring.Poly
+	Value [2]*ring.Poly
 }
 
 // PublicKey is a type for generic RLWE public keys.
 type PublicKey struct {
-	Value [2]*ring.Poly
+	Value [2][2]*ring.Poly
 }
 
 // SwitchingKey is a type for generic RLWE public switching keys.
 type SwitchingKey struct {
-	Value [][2]*ring.Poly
+	Value [][2][2]*ring.Poly
 }
 
 // RelinearizationKey is a type for generic RLWE public relinearization keys. It stores a slice with a
@@ -43,17 +43,18 @@ type EvaluationKey struct {
 
 // NewSecretKey generates a new SecretKey with zero values.
 func NewSecretKey(params Parameters) *SecretKey {
-
 	sk := new(SecretKey)
-	sk.Value = ring.NewPoly(params.N(), params.QPCount())
+	sk.Value = [2]*ring.Poly{ring.NewPoly(params.N(), params.QCount()), ring.NewPoly(params.N(), params.PCount())}
 	return sk
 }
 
 // NewPublicKey returns a new PublicKey with zero values.
 func NewPublicKey(params Parameters) (pk *PublicKey) {
-	ringDegree := params.N()
-	moduliCount := params.QPCount()
-	return &PublicKey{Value: [2]*ring.Poly{ring.NewPoly(ringDegree, moduliCount), ring.NewPoly(ringDegree, moduliCount)}}
+	return &PublicKey{
+		Value: [2][2]*ring.Poly{
+			{ring.NewPoly(params.N(), params.QCount()), ring.NewPoly(params.N(), params.PCount())},
+			{ring.NewPoly(params.N(), params.QCount()), ring.NewPoly(params.N(), params.PCount())}},
+	}
 }
 
 // Equals checks two PublicKey struct for equality.
@@ -61,8 +62,12 @@ func (pk *PublicKey) Equals(other *PublicKey) bool {
 	if pk == other {
 		return true
 	}
-	nilVal := [2]*ring.Poly{}
-	return pk.Value != nilVal && other.Value != nilVal && pk.Value[0].Equals(other.Value[0]) && pk.Value[1].Equals(other.Value[1])
+	nilVal := [2][2]*ring.Poly{}
+	return pk.Value != nilVal && other.Value != nilVal &&
+		pk.Value[0][0].Equals(other.Value[0][0]) &&
+		pk.Value[0][1].Equals(other.Value[0][1]) &&
+		pk.Value[1][0].Equals(other.Value[1][0]) &&
+		pk.Value[1][1].Equals(other.Value[1][1])
 }
 
 // NewRotationKeySet returns a new RotationKeySet with pre-allocated switching keys for each distinct galoisElement value.
@@ -84,16 +89,13 @@ func (rtks *RotationKeySet) GetRotationKey(galoisEl uint64) (*SwitchingKey, bool
 
 // NewSwitchingKey returns a new public switching key with pre-allocated zero-value
 func NewSwitchingKey(params Parameters) *SwitchingKey {
-	ringDegree := params.N()
-	moduliCount := params.QPCount()
-	decompSize := params.Beta()
-
 	swk := new(SwitchingKey)
-	swk.Value = make([][2]*ring.Poly, int(decompSize))
-
-	for i := 0; i < decompSize; i++ {
-		swk.Value[i][0] = ring.NewPoly(ringDegree, moduliCount)
-		swk.Value[i][1] = ring.NewPoly(ringDegree, moduliCount)
+	swk.Value = make([][2][2]*ring.Poly, params.Beta())
+	for i := 0; i < params.Beta(); i++ {
+		swk.Value[i][0][0] = ring.NewPoly(params.N(), params.QCount())
+		swk.Value[i][0][1] = ring.NewPoly(params.N(), params.PCount())
+		swk.Value[i][1][0] = ring.NewPoly(params.N(), params.QCount())
+		swk.Value[i][1][1] = ring.NewPoly(params.N(), params.PCount())
 	}
 
 	return swk
@@ -115,7 +117,7 @@ func NewRelinKey(params Parameters, maxRelinDegree int) (evakey *Relinearization
 
 // GetDataLen returns the length in bytes of the target SecretKey.
 func (sk *SecretKey) GetDataLen(WithMetadata bool) (dataLen int) {
-	return sk.Value.GetDataLen(WithMetadata)
+	return sk.Value[0].GetDataLen(WithMetadata) + sk.Value[1].GetDataLen(WithMetadata)
 }
 
 // MarshalBinary encodes a secret key in a byte slice.
@@ -123,7 +125,12 @@ func (sk *SecretKey) MarshalBinary() (data []byte, err error) {
 
 	data = make([]byte, sk.GetDataLen(true))
 
-	if _, err = sk.Value.WriteTo(data); err != nil {
+	var inc int
+	if inc, err = sk.Value[0].WriteTo(data); err != nil {
+		return nil, err
+	}
+
+	if _, err = sk.Value[1].WriteTo(data[inc:]); err != nil {
 		return nil, err
 	}
 
@@ -133,9 +140,15 @@ func (sk *SecretKey) MarshalBinary() (data []byte, err error) {
 // UnmarshalBinary decodes a previously marshaled SecretKey in the target SecretKey.
 func (sk *SecretKey) UnmarshalBinary(data []byte) (err error) {
 
-	sk.Value = new(ring.Poly)
+	sk.Value[0] = new(ring.Poly)
+	sk.Value[1] = new(ring.Poly)
 
-	if _, err = sk.Value.DecodePolyNew(data); err != nil {
+	var inc int
+	if inc, err = sk.Value[0].DecodePolyNew(data); err != nil {
+		return err
+	}
+
+	if _, err = sk.Value[1].DecodePolyNew(data[inc:]); err != nil {
 		return err
 	}
 
@@ -144,17 +157,18 @@ func (sk *SecretKey) UnmarshalBinary(data []byte) (err error) {
 
 // CopyNew creates a deep copy of the receiver secret key and returns it.
 func (sk *SecretKey) CopyNew() *SecretKey {
-	if sk == nil || sk.Value == nil {
+	if sk == nil || sk.Value[0] == nil {
 		return nil
 	}
-	return &SecretKey{sk.Value.CopyNew()}
+	return &SecretKey{[2]*ring.Poly{sk.Value[0].CopyNew(), sk.Value[1].CopyNew()}}
 }
 
 // GetDataLen returns the length in bytes of the target PublicKey.
 func (pk *PublicKey) GetDataLen(WithMetadata bool) (dataLen int) {
 
 	for _, el := range pk.Value {
-		dataLen += el.GetDataLen(WithMetadata)
+		dataLen += el[0].GetDataLen(WithMetadata)
+		dataLen += el[1].GetDataLen(WithMetadata)
 	}
 
 	return
@@ -169,11 +183,22 @@ func (pk *PublicKey) MarshalBinary() (data []byte, err error) {
 
 	var pointer, inc int
 
-	if inc, err = pk.Value[0].WriteTo(data[pointer:]); err != nil {
+	if inc, err = pk.Value[0][0].WriteTo(data[pointer:]); err != nil {
 		return nil, err
 	}
+	pointer += inc
 
-	if _, err = pk.Value[1].WriteTo(data[pointer+inc:]); err != nil {
+	if inc, err = pk.Value[0][1].WriteTo(data[pointer:]); err != nil {
+		return nil, err
+	}
+	pointer += inc
+
+	if inc, err = pk.Value[1][0].WriteTo(data[pointer:]); err != nil {
+		return nil, err
+	}
+	pointer += inc
+
+	if _, err = pk.Value[1][1].WriteTo(data[pointer:]); err != nil {
 		return nil, err
 	}
 
@@ -186,14 +211,27 @@ func (pk *PublicKey) UnmarshalBinary(data []byte) (err error) {
 
 	var pointer, inc int
 
-	pk.Value[0] = new(ring.Poly)
-	pk.Value[1] = new(ring.Poly)
+	pk.Value[0][0] = new(ring.Poly)
+	pk.Value[0][1] = new(ring.Poly)
+	pk.Value[1][0] = new(ring.Poly)
+	pk.Value[1][1] = new(ring.Poly)
 
-	if inc, err = pk.Value[0].DecodePolyNew(data[pointer:]); err != nil {
+	if inc, err = pk.Value[0][0].DecodePolyNew(data[pointer:]); err != nil {
 		return err
 	}
+	pointer += inc
 
-	if _, err = pk.Value[1].DecodePolyNew(data[pointer+inc:]); err != nil {
+	if inc, err = pk.Value[0][1].DecodePolyNew(data[pointer:]); err != nil {
+		return err
+	}
+	pointer += inc
+
+	if inc, err = pk.Value[1][0].DecodePolyNew(data[pointer:]); err != nil {
+		return err
+	}
+	pointer += inc
+
+	if _, err = pk.Value[1][1].DecodePolyNew(data[pointer:]); err != nil {
 		return err
 	}
 
@@ -202,10 +240,10 @@ func (pk *PublicKey) UnmarshalBinary(data []byte) (err error) {
 
 // CopyNew creates a deep copy of the receiver PublicKey and returns it.
 func (pk *PublicKey) CopyNew() *PublicKey {
-	if pk == nil || pk.Value[0] == nil || pk.Value[1] == nil {
+	if pk == nil || pk.Value[0][0] == nil || pk.Value[0][1] == nil || pk.Value[1][0] == nil || pk.Value[1][1] == nil {
 		return nil
 	}
-	return &PublicKey{[2]*ring.Poly{pk.Value[0].CopyNew(), pk.Value[1].CopyNew()}}
+	return &PublicKey{[2][2]*ring.Poly{{pk.Value[0][0].CopyNew(), pk.Value[0][1].CopyNew()}, {pk.Value[1][0].CopyNew(), pk.Value[1][1].CopyNew()}}}
 }
 
 // Equals checks two RelinearizationKeys for equality.
@@ -308,7 +346,10 @@ func (swk *SwitchingKey) Equals(other *SwitchingKey) bool {
 		return false
 	}
 	for i := range swk.Value {
-		if !(swk.Value[i][0].Equals(other.Value[i][0]) && swk.Value[i][1].Equals(other.Value[i][1])) {
+		if !(swk.Value[i][0][0].Equals(other.Value[i][0][0]) &&
+			swk.Value[i][0][1].Equals(other.Value[i][0][1]) &&
+			swk.Value[i][1][1].Equals(other.Value[i][1][1]) &&
+			swk.Value[i][1][1].Equals(other.Value[i][1][1])) {
 			return false
 		}
 	}
@@ -323,8 +364,10 @@ func (swk *SwitchingKey) GetDataLen(WithMetadata bool) (dataLen int) {
 	}
 
 	for j := uint64(0); j < uint64(len(swk.Value)); j++ {
-		dataLen += swk.Value[j][0].GetDataLen(WithMetadata)
-		dataLen += swk.Value[j][1].GetDataLen(WithMetadata)
+		dataLen += swk.Value[j][0][0].GetDataLen(WithMetadata)
+		dataLen += swk.Value[j][0][1].GetDataLen(WithMetadata)
+		dataLen += swk.Value[j][1][0].GetDataLen(WithMetadata)
+		dataLen += swk.Value[j][1][1].GetDataLen(WithMetadata)
 	}
 
 	return
@@ -357,9 +400,9 @@ func (swk *SwitchingKey) CopyNew() *SwitchingKey {
 	if swk == nil || len(swk.Value) == 0 {
 		return nil
 	}
-	swkb := &SwitchingKey{Value: make([][2]*ring.Poly, len(swk.Value))}
+	swkb := &SwitchingKey{Value: make([][2][2]*ring.Poly, len(swk.Value))}
 	for i, el := range swk.Value {
-		swkb.Value[i] = [2]*ring.Poly{el[0].CopyNew(), el[1].CopyNew()}
+		swkb.Value[i] = [2][2]*ring.Poly{{el[0][0].CopyNew(), el[0][1].CopyNew()}, {el[1][0].CopyNew(), el[1][1].CopyNew()}}
 	}
 	return swkb
 }
@@ -375,13 +418,25 @@ func (swk *SwitchingKey) encode(pointer int, data []byte) (int, error) {
 
 	for j := 0; j < len(swk.Value); j++ {
 
-		if inc, err = swk.Value[j][0].WriteTo(data[pointer : pointer+swk.Value[j][0].GetDataLen(true)]); err != nil {
+		if inc, err = swk.Value[j][0][0].WriteTo(data[pointer : pointer+swk.Value[j][0][0].GetDataLen(true)]); err != nil {
 			return pointer, err
 		}
 
 		pointer += inc
 
-		if inc, err = swk.Value[j][1].WriteTo(data[pointer : pointer+swk.Value[j][1].GetDataLen(true)]); err != nil {
+		if inc, err = swk.Value[j][0][1].WriteTo(data[pointer : pointer+swk.Value[j][0][1].GetDataLen(true)]); err != nil {
+			return pointer, err
+		}
+
+		pointer += inc
+
+		if inc, err = swk.Value[j][1][0].WriteTo(data[pointer : pointer+swk.Value[j][1][0].GetDataLen(true)]); err != nil {
+			return pointer, err
+		}
+
+		pointer += inc
+
+		if inc, err = swk.Value[j][1][1].WriteTo(data[pointer : pointer+swk.Value[j][1][1].GetDataLen(true)]); err != nil {
 			return pointer, err
 		}
 
@@ -397,20 +452,32 @@ func (swk *SwitchingKey) decode(data []byte) (pointer int, err error) {
 
 	pointer = 1
 
-	swk.Value = make([][2]*ring.Poly, decomposition)
+	swk.Value = make([][2][2]*ring.Poly, decomposition)
 
 	var inc int
 
 	for j := 0; j < decomposition; j++ {
 
-		swk.Value[j][0] = new(ring.Poly)
-		if inc, err = swk.Value[j][0].DecodePolyNew(data[pointer:]); err != nil {
+		swk.Value[j][0][0] = new(ring.Poly)
+		if inc, err = swk.Value[j][0][0].DecodePolyNew(data[pointer:]); err != nil {
 			return pointer, err
 		}
 		pointer += inc
 
-		swk.Value[j][1] = new(ring.Poly)
-		if inc, err = swk.Value[j][1].DecodePolyNew(data[pointer:]); err != nil {
+		swk.Value[j][0][1] = new(ring.Poly)
+		if inc, err = swk.Value[j][0][1].DecodePolyNew(data[pointer:]); err != nil {
+			return pointer, err
+		}
+		pointer += inc
+
+		swk.Value[j][1][0] = new(ring.Poly)
+		if inc, err = swk.Value[j][1][0].DecodePolyNew(data[pointer:]); err != nil {
+			return pointer, err
+		}
+		pointer += inc
+
+		swk.Value[j][1][1] = new(ring.Poly)
+		if inc, err = swk.Value[j][1][1].DecodePolyNew(data[pointer:]); err != nil {
 			return pointer, err
 		}
 		pointer += inc

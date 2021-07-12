@@ -24,7 +24,7 @@ func testString(opname string, p Parameters) string {
 type testContext struct {
 	params      Parameters
 	ringQ       *ring.Ring
-	ringQP      *ring.Ring
+	ringP       *ring.Ring
 	ringT       *ring.Ring
 	prng        utils.PRNG
 	uSampler    *ring.UniformSampler
@@ -33,9 +33,9 @@ type testContext struct {
 	sk          *rlwe.SecretKey
 	pk          *rlwe.PublicKey
 	rlk         *rlwe.RelinearizationKey
-	encryptorPk Encryptor
-	encryptorSk Encryptor
-	decryptor   Decryptor
+	encryptorPk *Encryptor
+	encryptorSk *Encryptor
+	decryptor   *Decryptor
 	evaluator   Evaluator
 }
 
@@ -67,7 +67,6 @@ func TestBFV(t *testing.T) {
 
 		testParameters(testctx, t)
 		testEncoder(testctx, t)
-		testEncryptor(testctx, t)
 		testEvaluator(testctx, t)
 		testEvaluatorKeySwitch(testctx, t)
 		testEvaluatorRotate(testctx, t)
@@ -86,19 +85,18 @@ func genTestParams(params Parameters) (testctx *testContext, err error) {
 	}
 
 	testctx.ringQ = params.RingQ()
-	testctx.ringQP = params.RingQP()
 	testctx.ringT = params.RingT()
-
 	testctx.uSampler = ring.NewUniformSampler(testctx.prng, testctx.ringT)
 	testctx.kgen = NewKeyGenerator(testctx.params)
 	testctx.sk, testctx.pk = testctx.kgen.GenKeyPair()
 	if params.PCount() != 0 {
+		testctx.ringP = params.RingP()
 		testctx.rlk = testctx.kgen.GenRelinearizationKey(testctx.sk, 1)
 	}
 
 	testctx.encoder = NewEncoder(testctx.params)
-	testctx.encryptorPk = NewEncryptorFromPk(testctx.params, testctx.pk)
-	testctx.encryptorSk = NewEncryptorFromSk(testctx.params, testctx.sk)
+	testctx.encryptorPk = NewEncryptor(testctx.params, testctx.pk)
+	testctx.encryptorSk = NewEncryptor(testctx.params, testctx.sk)
 	testctx.decryptor = NewDecryptor(testctx.params, testctx.sk)
 	testctx.evaluator = NewEvaluator(testctx.params, rlwe.EvaluationKey{Rlk: testctx.rlk})
 	return
@@ -120,13 +118,13 @@ func testParameters(testctx *testContext, t *testing.T) {
 	t.Run(testString("Parameters/CopyNew/", testctx.params), func(t *testing.T) {
 		params1, params2 := testctx.params.CopyNew(), testctx.params.CopyNew()
 		assert.True(t, params1.Equals(testctx.params) && params2.Equals(testctx.params))
-		params1.t = 7
+		params1.ringT, _ = ring.NewRing(testctx.params.N(), []uint64{7})
 		assert.False(t, params1.Equals(testctx.params))
 		assert.True(t, params2.Equals(testctx.params))
 	})
 }
 
-func newTestVectorsRingQ(testctx *testContext, encryptor Encryptor, t *testing.T) (coeffs *ring.Poly, plaintext *Plaintext, ciphertext *Ciphertext) {
+func newTestVectorsRingQ(testctx *testContext, encryptor *Encryptor, t *testing.T) (coeffs *ring.Poly, plaintext *Plaintext, ciphertext *Ciphertext) {
 
 	coeffs = testctx.uSampler.ReadNew()
 
@@ -135,12 +133,7 @@ func newTestVectorsRingQ(testctx *testContext, encryptor Encryptor, t *testing.T
 	testctx.encoder.EncodeUint(coeffs.Coeffs[0], plaintext)
 
 	if encryptor != nil {
-		if testctx.params.PCount() != 0 {
-			ciphertext = testctx.encryptorPk.EncryptNew(plaintext)
-		} else {
-			ciphertext = testctx.encryptorPk.EncryptFastNew(plaintext)
-		}
-
+		ciphertext = encryptor.EncryptNew(plaintext)
 	}
 
 	return coeffs, plaintext, ciphertext
@@ -168,7 +161,7 @@ func newTestVectorsMul(testctx *testContext, t *testing.T) (coeffs *ring.Poly, p
 	return coeffs, plaintext
 }
 
-func verifyTestVectors(testctx *testContext, decryptor Decryptor, coeffs *ring.Poly, element Operand, t *testing.T) {
+func verifyTestVectors(testctx *testContext, decryptor *Decryptor, coeffs *ring.Poly, element Operand, t *testing.T) {
 
 	var coeffsTest []uint64
 
@@ -240,39 +233,6 @@ func testEncoder(testctx *testContext, t *testing.T) {
 	t.Run(testString("Encoder/Encode&Decode/PlaintextMul/", testctx.params), func(t *testing.T) {
 		values, plaintext := newTestVectorsMul(testctx, t)
 		verifyTestVectors(testctx, nil, values, plaintext, t)
-	})
-}
-
-func testEncryptor(testctx *testContext, t *testing.T) {
-
-	coeffs := testctx.uSampler.ReadNew()
-
-	plaintextRingT := NewPlaintextRingT(testctx.params)
-	plaintext := NewPlaintext(testctx.params)
-
-	testctx.encoder.EncodeUintRingT(coeffs.Coeffs[0], plaintextRingT)
-	testctx.encoder.EncodeUint(coeffs.Coeffs[0], plaintext)
-
-	t.Run(testString("Encryptor/EncryptFromPk/", testctx.params), func(t *testing.T) {
-
-		if testctx.params.PCount() == 0 {
-			t.Skip("#Pi is empty")
-		}
-
-		verifyTestVectors(testctx, testctx.decryptor, coeffs, testctx.encryptorPk.EncryptNew(plaintext), t)
-	})
-
-	t.Run(testString("Encryptor/EncryptFromPkFast/", testctx.params), func(t *testing.T) {
-		verifyTestVectors(testctx, testctx.decryptor, coeffs, testctx.encryptorPk.EncryptFastNew(plaintext), t)
-	})
-
-	t.Run(testString("Encryptor/EncryptFromSk/", testctx.params), func(t *testing.T) {
-		verifyTestVectors(testctx, testctx.decryptor, coeffs, testctx.encryptorSk.EncryptNew(plaintext), t)
-	})
-
-	t.Run(testString("Encryptor/EncryptFromCRP/", testctx.params), func(t *testing.T) {
-		samplerQP := ring.NewUniformSampler(testctx.prng, testctx.ringQP)
-		verifyTestVectors(testctx, testctx.decryptor, coeffs, testctx.encryptorSk.EncryptFromCRPNew(plaintext, samplerQP.ReadNew()), t)
 	})
 }
 
@@ -397,12 +357,12 @@ func testEvaluator(testctx *testContext, t *testing.T) {
 		plaintextWant := NewPlaintextRingT(testctx.params)
 
 		testctx.evaluator.Sub(ciphertext, plaintextRingT, ciphertextOut)
-		testctx.ringT.Sub(values2, values1, plaintextWant.value)
-		verifyTestVectors(testctx, testctx.decryptor, plaintextWant.value, ciphertextOut, t)
+		testctx.ringT.Sub(values2, values1, plaintextWant.Value)
+		verifyTestVectors(testctx, testctx.decryptor, plaintextWant.Value, ciphertextOut, t)
 
 		testctx.evaluator.Sub(plaintextRingT, ciphertext, ciphertextOut)
-		testctx.ringT.Sub(values1, values2, plaintextWant.value)
-		verifyTestVectors(testctx, testctx.decryptor, plaintextWant.value, ciphertextOut, t)
+		testctx.ringT.Sub(values1, values2, plaintextWant.Value)
+		verifyTestVectors(testctx, testctx.decryptor, plaintextWant.Value, ciphertextOut, t)
 	})
 
 	t.Run(testString("Evaluator/Sub/op1=Ciphertext/op2=Plaintext/", testctx.params), func(t *testing.T) {
@@ -773,7 +733,8 @@ func testMarshalSK(testctx *testContext, t *testing.T) {
 		err = sk.UnmarshalBinary(marshalledSk)
 		require.NoError(t, err)
 
-		require.True(t, testctx.ringQP.Equal(sk.Value, testctx.sk.Value))
+		require.True(t, testctx.ringQ.Equal(sk.Value[0], testctx.sk.Value[0]))
+		require.True(t, testctx.ringP.Equal(sk.Value[1], testctx.sk.Value[1]))
 	})
 }
 
@@ -789,7 +750,8 @@ func testMarshalPK(testctx *testContext, t *testing.T) {
 		require.NoError(t, err)
 
 		for k := range testctx.pk.Value {
-			require.True(t, testctx.ringQP.Equal(pk.Value[k], testctx.pk.Value[k]), k)
+			require.True(t, testctx.ringQ.Equal(pk.Value[k][0], testctx.pk.Value[k][0]), k)
+			require.True(t, testctx.ringP.Equal(pk.Value[k][1], testctx.pk.Value[k][1]), k)
 		}
 	})
 
@@ -818,7 +780,8 @@ func testMarshalEvaluationKey(testctx *testContext, t *testing.T) {
 			for j := range evakeyWant {
 
 				for k := range evakeyWant[j] {
-					require.Truef(t, testctx.ringQP.Equal(evakeyWant[j][k], evakeyTest[j][k]), "deg %d element [%d][%d]", deg, j, k)
+					require.Truef(t, testctx.ringQ.Equal(evakeyWant[j][k][0], evakeyTest[j][k][0]), "deg %d element [%d][%d][0]", deg, j, k)
+					require.Truef(t, testctx.ringP.Equal(evakeyWant[j][k][1], evakeyTest[j][k][1]), "deg %d element [%d][%d][1]", deg, j, k)
 				}
 			}
 		}
@@ -848,7 +811,8 @@ func testMarshalSwitchingKey(testctx *testContext, t *testing.T) {
 		for j := range evakeyWant {
 
 			for k := range evakeyWant[j] {
-				require.Truef(t, testctx.ringQP.Equal(evakeyWant[j][k], evakeyTest[j][k]), "marshal SwitchingKey element [%d][%d]", j, k)
+				require.Truef(t, testctx.ringQ.Equal(evakeyWant[j][k][0], evakeyTest[j][k][0]), "marshal SwitchingKey element [%d][%d][0]", j, k)
+				require.Truef(t, testctx.ringP.Equal(evakeyWant[j][k][1], evakeyTest[j][k][1]), "marshal SwitchingKey element [%d][%d][1]", j, k)
 			}
 		}
 	})
@@ -879,7 +843,8 @@ func testMarshalRotKey(testctx *testContext, t *testing.T) {
 
 			for j := range evakeyWant {
 				for k := range evakeyWant[j] {
-					require.Truef(t, testctx.ringQP.Equal(evakeyWant[j][k], evakeyTest[j][k]), "marshalled rotation key element [%d][%d] does not match", j, k)
+					require.Truef(t, testctx.ringQ.Equal(evakeyWant[j][k][0], evakeyTest[j][k][0]), "marshalled rotation key element [%d][%d][0] does not match", j, k)
+					require.Truef(t, testctx.ringP.Equal(evakeyWant[j][k][1], evakeyTest[j][k][1]), "marshalled rotation key element [%d][%d][1] does not match", j, k)
 				}
 			}
 		}

@@ -44,8 +44,6 @@ type Ring struct {
 	NttPsi    [][]uint64 //powers of the inverse of the 2N-th primitive root in Montgomery form (in bit-reversed order)
 	NttPsiInv [][]uint64 //powers of the inverse of the 2N-th primitive root in Montgomery form (in bit-reversed order)
 	NttNInv   []uint64   //[N^-1] mod Qi in Montgomery form
-
-	polypool *Poly
 }
 
 // NewRing creates a new RNS Ring with degree N and coefficient moduli Moduli. N must be a power of two larger than 8. Moduli should be
@@ -110,8 +108,6 @@ func (r *Ring) setParameters(N int, Modulus []uint64) error {
 			r.MredParams[i] = MRedParams(qi)
 		}
 	}
-
-	r.polypool = r.NewPoly()
 
 	return nil
 }
@@ -342,9 +338,12 @@ func (r *Ring) PolyToString(p1 *Poly) []string {
 
 // PolyToBigint reconstructs p1 and returns the result in an array of Int.
 func (r *Ring) PolyToBigint(p1 *Poly, coeffsBigint []*big.Int) {
-	var qi uint64
+	r.PolyToBigintLvl(p1.Level(), p1, coeffsBigint)
+}
 
-	level := p1.Level()
+// PolyToBigintLvl reconstructs p1 and returns the result in an array of Int.
+func (r *Ring) PolyToBigintLvl(level int, p1 *Poly, coeffsBigint []*big.Int) {
+	var qi uint64
 
 	crtReconstruction := make([]*big.Int, level+1)
 
@@ -379,12 +378,10 @@ func (r *Ring) PolyToBigint(p1 *Poly, coeffsBigint []*big.Int) {
 	}
 }
 
-// PolyToBigintNoAlloc reconstructs p1 and returns the result in an pre-allocated array of Int.
-func (r *Ring) PolyToBigintNoAlloc(p1 *Poly, coeffsBigint []*big.Int) {
-
+// PolyToBigintCenteredLvl reconstructs p1 and returns the result in an array of Int.
+// Coefficients are centered around Q/2
+func (r *Ring) PolyToBigintCenteredLvl(level int, p1 *Poly, coeffsBigint []*big.Int) {
 	var qi uint64
-
-	level := p1.Level()
 
 	crtReconstruction := make([]*big.Int, level+1)
 
@@ -406,15 +403,27 @@ func (r *Ring) PolyToBigintNoAlloc(p1 *Poly, coeffsBigint []*big.Int) {
 		crtReconstruction[i].Mul(crtReconstruction[i], tmp)
 	}
 
+	modulusBigintHalf := new(big.Int)
+	modulusBigintHalf.Rsh(modulusBigint, 1)
+
+	var sign int
 	for x := 0; x < r.N; x++ {
 
 		tmp.SetUint64(0)
+		coeffsBigint[x].SetUint64(0)
 
 		for i := 0; i < level+1; i++ {
 			coeffsBigint[x].Add(coeffsBigint[x], tmp.Mul(NewUint(p1.Coeffs[i][x]), crtReconstruction[i]))
 		}
 
 		coeffsBigint[x].Mod(coeffsBigint[x], modulusBigint)
+
+		// Centers the coefficients
+		sign = coeffsBigint[x].Cmp(modulusBigintHalf)
+
+		if sign == 1 || sign == 0 {
+			coeffsBigint[x].Sub(coeffsBigint[x], modulusBigint)
+		}
 	}
 }
 

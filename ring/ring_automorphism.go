@@ -31,18 +31,13 @@ func GenGaloisParams(n, gen uint64) (galElRotCol []uint64) {
 func PermuteNTTIndex(galEl, N uint64) (index []uint64) {
 
 	var mask, logN, tmp1, tmp2 uint64
-
 	logN = uint64(bits.Len64(N) - 1)
-
 	mask = (N << 1) - 1
-
 	index = make([]uint64, N)
 
 	for i := uint64(0); i < N; i++ {
 		tmp1 = 2*utils.BitReverse64(i, logN) + 1
-
 		tmp2 = ((galEl * tmp1 & mask) - 1) >> 1
-
 		index[i] = utils.BitReverse64(tmp2, logN)
 	}
 
@@ -53,68 +48,14 @@ func PermuteNTTIndex(galEl, N uint64) (index []uint64) {
 // It maps the coefficients x^i to x^(gen*i)
 // It must be noted that the result cannot be in-place.
 func PermuteNTT(polIn *Poly, gen uint64, polOut *Poly) {
-
-	var N, tmp, mask, logN, tmp1, tmp2 uint64
-
-	N = uint64(len(polIn.Coeffs[0]))
-
-	logN = uint64(bits.Len64(N) - 1)
-
-	mask = (N << 1) - 1
-
-	index := make([]uint64, N)
-
-	for i := uint64(0); i < N; i++ {
-		tmp1 = 2*utils.BitReverse64(i, logN) + 1
-
-		tmp2 = ((gen * tmp1 & mask) - 1) >> 1
-
-		index[i] = utils.BitReverse64(tmp2, logN)
-	}
-
-	for j := uint64(0); j < N; j++ {
-
-		tmp = index[j]
-
-		for i := 0; i < len(polIn.Coeffs); i++ {
-
-			polOut.Coeffs[i][j] = polIn.Coeffs[i][tmp]
-		}
-	}
+	PermuteNTTLvl(utils.MinInt(polIn.Level(), polOut.Level()), polIn, gen, polOut)
 }
 
 // PermuteNTTLvl applies the Galois transform on a polynomial in the NTT domain, up to a given level.
 // It maps the coefficients x^i to x^(gen*i)
 // It must be noted that the result cannot be in-place.
 func PermuteNTTLvl(level int, polIn *Poly, gen uint64, polOut *Poly) {
-
-	var tmp, tmp1, tmp2 uint64
-
-	N := len(polIn.Coeffs[0])
-
-	logN := uint64(bits.Len64(uint64(N)) - 1)
-
-	mask := uint64((N << 1) - 1)
-
-	index := make([]uint64, N)
-
-	for i := 0; i < N; i++ {
-		tmp1 = 2*utils.BitReverse64(uint64(i), logN) + 1
-
-		tmp2 = ((gen * tmp1 & mask) - 1) >> 1
-
-		index[i] = utils.BitReverse64(tmp2, logN)
-	}
-
-	for j := 0; j < N; j++ {
-
-		tmp = index[j]
-
-		for i := 0; i < level+1; i++ {
-
-			polOut.Coeffs[i][j] = polIn.Coeffs[i][tmp]
-		}
-	}
+	PermuteNTTWithIndexLvl(level, polIn, PermuteNTTIndex(gen, uint64(len(polIn.Coeffs[0]))), polOut)
 }
 
 // PermuteNTTWithIndexLvl applies the Galois transform on a polynomial in the NTT domain, up to a given level.

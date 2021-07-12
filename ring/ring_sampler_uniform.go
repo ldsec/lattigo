@@ -65,8 +65,8 @@ func (uniformSampler *UniformSampler) Read(Pol *Poly) {
 	}
 }
 
-// Readlvl generates a new polynomial with coefficients following a uniform distribution over [0, Qi-1].
-func (uniformSampler *UniformSampler) Readlvl(level int, Pol *Poly) {
+// ReadLvl generates a new polynomial with coefficients following a uniform distribution over [0, Qi-1].
+func (uniformSampler *UniformSampler) ReadLvl(level int, Pol *Poly) {
 
 	var randomUint, mask, qi uint64
 	var ptr int
@@ -121,7 +121,7 @@ func (uniformSampler *UniformSampler) ReadNew() (Pol *Poly) {
 // Polynomial is created at the specified level.
 func (uniformSampler *UniformSampler) ReadLvlNew(level int) (Pol *Poly) {
 	Pol = uniformSampler.baseRing.NewPolyLvl(level)
-	uniformSampler.Readlvl(level, Pol)
+	uniformSampler.ReadLvl(level, Pol)
 	return
 }
 

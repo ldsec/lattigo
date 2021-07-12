@@ -38,7 +38,7 @@ func (prec PrecisionStats) String() string {
 }
 
 // GetPrecisionStats generates a PrecisionStats struct from the reference values and the decrypted values
-func GetPrecisionStats(params Parameters, encoder Encoder, decryptor Decryptor, valuesWant []complex128, element interface{}, logSlots int, sigma float64) (prec PrecisionStats) {
+func GetPrecisionStats(params Parameters, encoder Encoder, decryptor *Decryptor, valuesWant []complex128, element interface{}, logSlots int, sigma float64) (prec PrecisionStats) {
 
 	var valuesTest []complex128
 

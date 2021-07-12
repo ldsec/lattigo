@@ -8,26 +8,17 @@ import (
 	"github.com/ldsec/lattigo/v2/utils"
 )
 
+func (r *Ring) minLevelTernary(p1, p2, p3 *Poly) int {
+	return utils.MinInt(utils.MinInt(len(r.Modulus)-1, p1.Level()), utils.MinInt(p2.Level(), p3.Level()))
+}
+
+func (r *Ring) minLevelBinary(p1, p2 *Poly) int {
+	return utils.MinInt(utils.MinInt(len(r.Modulus)-1, p1.Level()), p2.Level())
+}
+
 // Add adds p1 to p2 coefficient-wise and writes the result on p3.
 func (r *Ring) Add(p1, p2, p3 *Poly) {
-	for i, qi := range r.Modulus {
-		p1tmp, p2tmp, p3tmp := p1.Coeffs[i], p2.Coeffs[i], p3.Coeffs[i]
-		for j := 0; j < r.N; j = j + 8 {
-
-			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
-			y := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
-			z := (*[8]uint64)(unsafe.Pointer(&p3tmp[j]))
-
-			z[0] = CRed(x[0]+y[0], qi)
-			z[1] = CRed(x[1]+y[1], qi)
-			z[2] = CRed(x[2]+y[2], qi)
-			z[3] = CRed(x[3]+y[3], qi)
-			z[4] = CRed(x[4]+y[4], qi)
-			z[5] = CRed(x[5]+y[5], qi)
-			z[6] = CRed(x[6]+y[6], qi)
-			z[7] = CRed(x[7]+y[7], qi)
-		}
-	}
+	r.AddLvl(r.minLevelTernary(p1, p2, p3), p1, p2, p3)
 }
 
 // AddLvl adds p1 to p2 coefficient-wise for the moduli from
@@ -57,24 +48,7 @@ func (r *Ring) AddLvl(level int, p1, p2, p3 *Poly) {
 // AddNoMod adds p1 to p2 coefficient-wise without
 // modular reduction and writes the result on p3.
 func (r *Ring) AddNoMod(p1, p2, p3 *Poly) {
-	for i := range r.Modulus {
-		p1tmp, p2tmp, p3tmp := p1.Coeffs[i], p2.Coeffs[i], p3.Coeffs[i]
-		for j := 0; j < r.N; j = j + 8 {
-
-			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
-			y := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
-			z := (*[8]uint64)(unsafe.Pointer(&p3tmp[j]))
-
-			z[0] = x[0] + y[0]
-			z[1] = x[1] + y[1]
-			z[2] = x[2] + y[2]
-			z[3] = x[3] + y[3]
-			z[4] = x[4] + y[4]
-			z[5] = x[5] + y[5]
-			z[6] = x[6] + y[6]
-			z[7] = x[7] + y[7]
-		}
-	}
+	r.AddNoModLvl(r.minLevelTernary(p1, p2, p3), p1, p2, p3)
 }
 
 // AddNoModLvl adds p1 to p2 coefficient-wise without modular reduction
@@ -102,24 +76,7 @@ func (r *Ring) AddNoModLvl(level int, p1, p2, p3 *Poly) {
 
 // Sub subtracts p2 to p1 coefficient-wise and writes the result on p3.
 func (r *Ring) Sub(p1, p2, p3 *Poly) {
-	for i, qi := range r.Modulus {
-		p1tmp, p2tmp, p3tmp := p1.Coeffs[i], p2.Coeffs[i], p3.Coeffs[i]
-		for j := 0; j < r.N; j = j + 8 {
-
-			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
-			y := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
-			z := (*[8]uint64)(unsafe.Pointer(&p3tmp[j]))
-
-			z[0] = CRed((x[0]+qi)-y[0], qi)
-			z[1] = CRed((x[1]+qi)-y[1], qi)
-			z[2] = CRed((x[2]+qi)-y[2], qi)
-			z[3] = CRed((x[3]+qi)-y[3], qi)
-			z[4] = CRed((x[4]+qi)-y[4], qi)
-			z[5] = CRed((x[5]+qi)-y[5], qi)
-			z[6] = CRed((x[6]+qi)-y[6], qi)
-			z[7] = CRed((x[7]+qi)-y[7], qi)
-		}
-	}
+	r.SubLvl(r.minLevelTernary(p1, p2, p3), p1, p2, p3)
 }
 
 // SubLvl subtracts p2 to p1 coefficient-wise and writes the result on p3.
@@ -148,24 +105,7 @@ func (r *Ring) SubLvl(level int, p1, p2, p3 *Poly) {
 // SubNoMod subtracts p2 to p1 coefficient-wise without
 // modular reduction and returns the result on p3.
 func (r *Ring) SubNoMod(p1, p2, p3 *Poly) {
-	for i, qi := range r.Modulus {
-		p1tmp, p2tmp, p3tmp := p1.Coeffs[i], p2.Coeffs[i], p3.Coeffs[i]
-		for j := 0; j < r.N; j = j + 8 {
-
-			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
-			y := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
-			z := (*[8]uint64)(unsafe.Pointer(&p3tmp[j]))
-
-			z[0] = x[0] + qi - y[0]
-			z[1] = x[1] + qi - y[1]
-			z[2] = x[2] + qi - y[2]
-			z[3] = x[3] + qi - y[3]
-			z[4] = x[4] + qi - y[4]
-			z[5] = x[5] + qi - y[5]
-			z[6] = x[6] + qi - y[6]
-			z[7] = x[7] + qi - y[7]
-		}
-	}
+	r.SubNoModLvl(r.minLevelTernary(p1, p2, p3), p1, p2, p3)
 }
 
 // SubNoModLvl subtracts p2 to p1 coefficient-wise without modular reduction
@@ -194,23 +134,7 @@ func (r *Ring) SubNoModLvl(level int, p1, p2, p3 *Poly) {
 
 // Neg sets all coefficients of p1 to their additive inverse and writes the result on p2.
 func (r *Ring) Neg(p1, p2 *Poly) {
-	for i, qi := range r.Modulus {
-		p1tmp, p2tmp := p1.Coeffs[i], p2.Coeffs[i]
-		for j := 0; j < r.N; j = j + 8 {
-
-			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
-			z := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
-
-			z[0] = qi - x[0]
-			z[1] = qi - x[1]
-			z[2] = qi - x[2]
-			z[3] = qi - x[3]
-			z[4] = qi - x[4]
-			z[5] = qi - x[5]
-			z[6] = qi - x[6]
-			z[7] = qi - x[7]
-		}
-	}
+	r.NegLvl(r.minLevelBinary(p1, p2), p1, p2)
 }
 
 // NegLvl sets the coefficients of p1 to their additive inverse for
@@ -238,47 +162,7 @@ func (r *Ring) NegLvl(level int, p1, p2 *Poly) {
 
 // Reduce applies a modular reduction on the coefficients of p1 and writes the result on p2.
 func (r *Ring) Reduce(p1, p2 *Poly) {
-	for i, qi := range r.Modulus {
-		p1tmp, p2tmp := p1.Coeffs[i], p2.Coeffs[i]
-		bredParams := r.BredParams[i]
-		for j := 0; j < r.N; j = j + 8 {
-
-			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
-			z := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
-
-			z[0] = BRedAdd(x[0], qi, bredParams)
-			z[1] = BRedAdd(x[1], qi, bredParams)
-			z[2] = BRedAdd(x[2], qi, bredParams)
-			z[3] = BRedAdd(x[3], qi, bredParams)
-			z[4] = BRedAdd(x[4], qi, bredParams)
-			z[5] = BRedAdd(x[5], qi, bredParams)
-			z[6] = BRedAdd(x[6], qi, bredParams)
-			z[7] = BRedAdd(x[7], qi, bredParams)
-		}
-	}
-}
-
-// ReduceConstant applies a modular reduction on the coefficients of p1 and writes the result on p2.
-// Return values in [0, 2q-1]
-func (r *Ring) ReduceConstant(p1, p2 *Poly) {
-	for i, qi := range r.Modulus {
-		p1tmp, p2tmp := p1.Coeffs[i], p2.Coeffs[i]
-		bredParams := r.BredParams[i]
-		for j := 0; j < r.N; j = j + 8 {
-
-			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
-			z := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
-
-			z[0] = BRedAddConstant(x[0], qi, bredParams)
-			z[1] = BRedAddConstant(x[1], qi, bredParams)
-			z[2] = BRedAddConstant(x[2], qi, bredParams)
-			z[3] = BRedAddConstant(x[3], qi, bredParams)
-			z[4] = BRedAddConstant(x[4], qi, bredParams)
-			z[5] = BRedAddConstant(x[5], qi, bredParams)
-			z[6] = BRedAddConstant(x[6], qi, bredParams)
-			z[7] = BRedAddConstant(x[7], qi, bredParams)
-		}
-	}
+	r.ReduceLvl(r.minLevelBinary(p1, p2), p1, p2)
 }
 
 // ReduceLvl applies a modular reduction on the coefficients of p1
@@ -303,6 +187,12 @@ func (r *Ring) ReduceLvl(level int, p1, p2 *Poly) {
 			z[7] = BRedAdd(x[7], qi, bredParams)
 		}
 	}
+}
+
+// ReduceConstant applies a modular reduction on the coefficients of p1 and writes the result on p2.
+// Return values in [0, 2q-1]
+func (r *Ring) ReduceConstant(p1, p2 *Poly) {
+	r.ReduceConstantLvl(r.minLevelBinary(p1, p2), p1, p2)
 }
 
 // ReduceConstantLvl applies a modular reduction on the coefficients of p1
@@ -348,36 +238,6 @@ func (r *Ring) Mod(p1 *Poly, m uint64, p2 *Poly) {
 			z[5] = BRedAdd(x[5], m, bredParams)
 			z[6] = BRedAdd(x[6], m, bredParams)
 			z[7] = BRedAdd(x[7], m, bredParams)
-		}
-	}
-}
-
-// AND applies a logical AND of m to the coefficients of p1 and writes the result on p2.
-func (r *Ring) AND(p1 *Poly, m uint64, p2 *Poly) {
-	for i := range r.Modulus {
-		p1tmp, p2tmp := p1.Coeffs[i], p2.Coeffs[i]
-		for j := 0; j < r.N; j++ {
-			p2tmp[j] = p1tmp[j] & m
-		}
-	}
-}
-
-// OR applies a logical OR of m to the coefficients of p1 and writes the result on p2.
-func (r *Ring) OR(p1 *Poly, m uint64, p2 *Poly) {
-	for i := range r.Modulus {
-		p1tmp, p2tmp := p1.Coeffs[i], p2.Coeffs[i]
-		for j := 0; j < r.N; j++ {
-			p2tmp[j] = p1tmp[j] | m
-		}
-	}
-}
-
-// XOR applies a logical XOR of m to the coefficients of p1 and writes the result on p2.
-func (r *Ring) XOR(p1 *Poly, m uint64, p2 *Poly) {
-	for i := range r.Modulus {
-		p1tmp, p2tmp := p1.Coeffs[i], p2.Coeffs[i]
-		for j := 0; j < r.N; j++ {
-			p2tmp[j] = p1tmp[j] ^ m
 		}
 	}
 }
@@ -457,26 +317,7 @@ func (r *Ring) MulCoeffsAndAddNoMod(p1, p2, p3 *Poly) {
 // MulCoeffsMontgomery multiplies p1 by p2 coefficient-wise with a
 // Montgomery modular reduction and returns the result on p3.
 func (r *Ring) MulCoeffsMontgomery(p1, p2, p3 *Poly) {
-	for i, qi := range r.Modulus {
-		p1tmp, p2tmp, p3tmp := p1.Coeffs[i], p2.Coeffs[i], p3.Coeffs[i]
-		mredParams := r.MredParams[i]
-
-		for j := 0; j < r.N; j = j + 8 {
-
-			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
-			y := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
-			z := (*[8]uint64)(unsafe.Pointer(&p3tmp[j]))
-
-			z[0] = MRed(x[0], y[0], qi, mredParams)
-			z[1] = MRed(x[1], y[1], qi, mredParams)
-			z[2] = MRed(x[2], y[2], qi, mredParams)
-			z[3] = MRed(x[3], y[3], qi, mredParams)
-			z[4] = MRed(x[4], y[4], qi, mredParams)
-			z[5] = MRed(x[5], y[5], qi, mredParams)
-			z[6] = MRed(x[6], y[6], qi, mredParams)
-			z[7] = MRed(x[7], y[7], qi, mredParams)
-		}
-	}
+	r.MulCoeffsMontgomeryLvl(r.minLevelTernary(p1, p2, p3), p1, p2, p3)
 }
 
 // MulCoeffsMontgomeryLvl multiplies p1 by p2 coefficient-wise with a Montgomery
@@ -502,6 +343,12 @@ func (r *Ring) MulCoeffsMontgomeryLvl(level int, p1, p2, p3 *Poly) {
 			z[7] = MRed(x[7], y[7], qi, mredParams)
 		}
 	}
+}
+
+// MulCoeffsMontgomeryConstant multiplies p1 by p2 coefficient-wise with a
+// constant-time Montgomery modular reduction and writes the result on p3.
+func (r *Ring) MulCoeffsMontgomeryConstant(p1, p2, p3 *Poly) {
+	r.MulCoeffsMontgomeryConstantLvl(r.minLevelTernary(p1, p2, p3), p1, p2, p3)
 }
 
 // MulCoeffsMontgomeryConstantLvl multiplies p1 by p2 coefficient-wise with a Montgomery
@@ -532,25 +379,7 @@ func (r *Ring) MulCoeffsMontgomeryConstantLvl(level int, p1, p2, p3 *Poly) {
 // MulCoeffsMontgomeryAndAdd multiplies p1 by p2 coefficient-wise with a
 // Montgomery modular reduction and adds the result to p3.
 func (r *Ring) MulCoeffsMontgomeryAndAdd(p1, p2, p3 *Poly) {
-	for i, qi := range r.Modulus {
-		p1tmp, p2tmp, p3tmp := p1.Coeffs[i], p2.Coeffs[i], p3.Coeffs[i]
-		mredParams := r.MredParams[i]
-		for j := 0; j < r.N; j = j + 8 {
-
-			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
-			y := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
-			z := (*[8]uint64)(unsafe.Pointer(&p3tmp[j]))
-
-			z[0] = CRed(z[0]+MRed(x[0], y[0], qi, mredParams), qi)
-			z[1] = CRed(z[1]+MRed(x[1], y[1], qi, mredParams), qi)
-			z[2] = CRed(z[2]+MRed(x[2], y[2], qi, mredParams), qi)
-			z[3] = CRed(z[3]+MRed(x[3], y[3], qi, mredParams), qi)
-			z[4] = CRed(z[4]+MRed(x[4], y[4], qi, mredParams), qi)
-			z[5] = CRed(z[5]+MRed(x[5], y[5], qi, mredParams), qi)
-			z[6] = CRed(z[6]+MRed(x[6], y[6], qi, mredParams), qi)
-			z[7] = CRed(z[7]+MRed(x[7], y[7], qi, mredParams), qi)
-		}
-	}
+	r.MulCoeffsMontgomeryAndAddLvl(r.minLevelTernary(p1, p2, p3), p1, p2, p3)
 }
 
 // MulCoeffsMontgomeryAndAddLvl multiplies p1 by p2 coefficient-wise with a Montgomery
@@ -581,50 +410,7 @@ func (r *Ring) MulCoeffsMontgomeryAndAddLvl(level int, p1, p2, p3 *Poly) {
 // MulCoeffsMontgomeryAndAddNoMod multiplies p1 by p2 coefficient-wise with a
 // Montgomery modular reduction and adds the result to p3 without modular reduction.
 func (r *Ring) MulCoeffsMontgomeryAndAddNoMod(p1, p2, p3 *Poly) {
-	for i, qi := range r.Modulus {
-		p1tmp, p2tmp, p3tmp := p1.Coeffs[i], p2.Coeffs[i], p3.Coeffs[i]
-		mredParams := r.MredParams[i]
-		for j := 0; j < r.N; j = j + 8 {
-
-			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
-			y := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
-			z := (*[8]uint64)(unsafe.Pointer(&p3tmp[j]))
-
-			z[0] += MRed(x[0], y[0], qi, mredParams)
-			z[1] += MRed(x[1], y[1], qi, mredParams)
-			z[2] += MRed(x[2], y[2], qi, mredParams)
-			z[3] += MRed(x[3], y[3], qi, mredParams)
-			z[4] += MRed(x[4], y[4], qi, mredParams)
-			z[5] += MRed(x[5], y[5], qi, mredParams)
-			z[6] += MRed(x[6], y[6], qi, mredParams)
-			z[7] += MRed(x[7], y[7], qi, mredParams)
-		}
-	}
-}
-
-// MulCoeffsMontgomeryConstantAndAddNoMod multiplies p1 by p2 coefficient-wise with a
-// Montgomery modular reduction and adds the result to p3 without modular reduction.
-// Return values in [0, 3q-1]
-func (r *Ring) MulCoeffsMontgomeryConstantAndAddNoMod(p1, p2, p3 *Poly) {
-	for i, qi := range r.Modulus {
-		p1tmp, p2tmp, p3tmp := p1.Coeffs[i], p2.Coeffs[i], p3.Coeffs[i]
-		mredParams := r.MredParams[i]
-		for j := 0; j < r.N; j = j + 8 {
-
-			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
-			y := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
-			z := (*[8]uint64)(unsafe.Pointer(&p3tmp[j]))
-
-			z[0] += MRedConstant(x[0], y[0], qi, mredParams)
-			z[1] += MRedConstant(x[1], y[1], qi, mredParams)
-			z[2] += MRedConstant(x[2], y[2], qi, mredParams)
-			z[3] += MRedConstant(x[3], y[3], qi, mredParams)
-			z[4] += MRedConstant(x[4], y[4], qi, mredParams)
-			z[5] += MRedConstant(x[5], y[5], qi, mredParams)
-			z[6] += MRedConstant(x[6], y[6], qi, mredParams)
-			z[7] += MRedConstant(x[7], y[7], qi, mredParams)
-		}
-	}
+	r.MulCoeffsMontgomeryAndAddNoModLvl(r.minLevelTernary(p1, p2, p3), p1, p2, p3)
 }
 
 // MulCoeffsMontgomeryAndAddNoModLvl multiplies p1 by p2 coefficient-wise with a Montgomery modular
@@ -650,6 +436,13 @@ func (r *Ring) MulCoeffsMontgomeryAndAddNoModLvl(level int, p1, p2, p3 *Poly) {
 			z[7] += MRed(x[7], y[7], qi, mredParams)
 		}
 	}
+}
+
+// MulCoeffsMontgomeryConstantAndAddNoMod multiplies p1 by p2 coefficient-wise with a
+// Montgomery modular reduction and adds the result to p3 without modular reduction.
+// Return values in [0, 3q-1]
+func (r *Ring) MulCoeffsMontgomeryConstantAndAddNoMod(p1, p2, p3 *Poly) {
+	r.MulCoeffsMontgomeryConstantAndAddNoModLvl(r.minLevelTernary(p1, p2, p3), p1, p2, p3)
 }
 
 // MulCoeffsMontgomeryConstantAndAddNoModLvl multiplies p1 by p2 coefficient-wise with a constant-time Montgomery
@@ -678,35 +471,17 @@ func (r *Ring) MulCoeffsMontgomeryConstantAndAddNoModLvl(level int, p1, p2, p3 *
 	}
 }
 
+// MulCoeffsMontgomeryAndSub multiplies p1 by p2 coefficient-wise with
+// a Montgomery modular reduction and subtracts the result from p3.
+func (r *Ring) MulCoeffsMontgomeryAndSub(p1, p2, p3 *Poly) {
+	r.MulCoeffsMontgomeryAndSubLvl(r.minLevelTernary(p1, p2, p3), p1, p2, p3)
+}
+
 // MulCoeffsMontgomeryAndSubLvl multiplies p1 by p2 coefficient-wise with
 // a Montgomery modular reduction and subtracts the result from p3.
 func (r *Ring) MulCoeffsMontgomeryAndSubLvl(level int, p1, p2, p3 *Poly) {
 	for i := 0; i < level+1; i++ {
 		qi := r.Modulus[i]
-		p1tmp, p2tmp, p3tmp := p1.Coeffs[i], p2.Coeffs[i], p3.Coeffs[i]
-		mredParams := r.MredParams[i]
-		for j := 0; j < r.N; j = j + 8 {
-
-			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
-			y := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
-			z := (*[8]uint64)(unsafe.Pointer(&p3tmp[j]))
-
-			z[0] = CRed(z[0]+(qi-MRed(x[0], y[0], qi, mredParams)), qi)
-			z[1] = CRed(z[1]+(qi-MRed(x[1], y[1], qi, mredParams)), qi)
-			z[2] = CRed(z[2]+(qi-MRed(x[2], y[2], qi, mredParams)), qi)
-			z[3] = CRed(z[3]+(qi-MRed(x[3], y[3], qi, mredParams)), qi)
-			z[4] = CRed(z[4]+(qi-MRed(x[4], y[4], qi, mredParams)), qi)
-			z[5] = CRed(z[5]+(qi-MRed(x[5], y[5], qi, mredParams)), qi)
-			z[6] = CRed(z[6]+(qi-MRed(x[6], y[6], qi, mredParams)), qi)
-			z[7] = CRed(z[7]+(qi-MRed(x[7], y[7], qi, mredParams)), qi)
-		}
-	}
-}
-
-// MulCoeffsMontgomeryAndSub multiplies p1 by p2 coefficient-wise with
-// a Montgomery modular reduction and subtracts the result from p3.
-func (r *Ring) MulCoeffsMontgomeryAndSub(p1, p2, p3 *Poly) {
-	for i, qi := range r.Modulus {
 		p1tmp, p2tmp, p3tmp := p1.Coeffs[i], p2.Coeffs[i], p3.Coeffs[i]
 		mredParams := r.MredParams[i]
 		for j := 0; j < r.N; j = j + 8 {
@@ -773,137 +548,6 @@ func (r *Ring) MulCoeffsConstant(p1, p2, p3 *Poly) {
 			z[7] = BRedConstant(x[7], y[7], qi, bredParams)
 		}
 	}
-}
-
-// MulCoeffsMontgomeryConstant multiplies p1 by p2 coefficient-wise with a
-// constant-time Montgomery modular reduction and writes the result on p3.
-func (r *Ring) MulCoeffsMontgomeryConstant(p1, p2, p3 *Poly) {
-	for i, qi := range r.Modulus {
-		p1tmp, p2tmp, p3tmp := p1.Coeffs[i], p2.Coeffs[i], p3.Coeffs[i]
-		mredParams := r.MredParams[i]
-		for j := 0; j < r.N; j = j + 8 {
-
-			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
-			y := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
-			z := (*[8]uint64)(unsafe.Pointer(&p3tmp[j]))
-
-			z[0] = MRedConstant(x[0], y[0], qi, mredParams)
-			z[1] = MRedConstant(x[1], y[1], qi, mredParams)
-			z[2] = MRedConstant(x[2], y[2], qi, mredParams)
-			z[3] = MRedConstant(x[3], y[3], qi, mredParams)
-			z[4] = MRedConstant(x[4], y[4], qi, mredParams)
-			z[5] = MRedConstant(x[5], y[5], qi, mredParams)
-			z[6] = MRedConstant(x[6], y[6], qi, mredParams)
-			z[7] = MRedConstant(x[7], y[7], qi, mredParams)
-		}
-	}
-}
-
-// MulPoly multiplies p1 by p2 and writes the result on p3.
-func (r *Ring) MulPoly(p1, p2, p3 *Poly) {
-
-	a := r.NewPoly()
-	b := r.NewPoly()
-
-	r.NTT(p1, a)
-	r.NTT(p2, b)
-	r.MulCoeffs(a, b, p3)
-	r.InvNTT(p3, p3)
-}
-
-// MulPolyMontgomery multiplies p1 by p2 and writes the result on p3..
-func (r *Ring) MulPolyMontgomery(p1, p2, p3 *Poly) {
-
-	a := r.NewPoly()
-	b := r.NewPoly()
-
-	r.NTT(p1, a)
-	r.NTT(p2, b)
-	r.MulCoeffsMontgomery(a, b, p3)
-	r.InvNTT(p3, p3)
-}
-
-// MulPolyNaive multiplies p1 by p2 with a naive convolution and writes the result on p3.
-func (r *Ring) MulPolyNaive(p1, p2, p3 *Poly) {
-
-	p1Copy := p1.CopyNew()
-	p2Copy := p2.CopyNew()
-
-	r.MForm(p1Copy, p1Copy)
-
-	r.AND(p3, 0, p3)
-
-	for x, qi := range r.Modulus {
-
-		p1tmp, p2tmp, p3tmp := p1Copy.Coeffs[x], p2Copy.Coeffs[x], p3.Coeffs[x]
-
-		mredParams := r.MredParams[x]
-
-		for i := 0; i < r.N; i++ {
-
-			for j := 0; j < i; j++ {
-				p3tmp[j] = CRed(p3tmp[j]+(qi-MRed(p1tmp[i], p2tmp[r.N-i+j], qi, mredParams)), qi)
-			}
-
-			for j := i; j < r.N; j++ {
-				p3tmp[j] = CRed(p3tmp[j]+MRed(p1tmp[i], p2tmp[j-i], qi, mredParams), qi)
-			}
-		}
-	}
-}
-
-// MulPolyNaiveMontgomery multiplies p1 by p2 with a naive convolution and writes the result on p3.
-func (r *Ring) MulPolyNaiveMontgomery(p1, p2, p3 *Poly) {
-
-	p1Copy := p1.CopyNew()
-	p2Copy := p2.CopyNew()
-
-	r.AND(p3, 0, p3)
-
-	for x, qi := range r.Modulus {
-
-		p1tmp, p2tmp, p3tmp := p1Copy.Coeffs[x], p2Copy.Coeffs[x], p3.Coeffs[x]
-
-		mredParams := r.MredParams[x]
-
-		for i := 0; i < r.N; i++ {
-
-			for j := 0; j < i; j++ {
-				p3tmp[j] = CRed(p3tmp[j]+(qi-MRed(p1tmp[i], p2tmp[r.N-i+j], qi, mredParams)), qi)
-			}
-
-			for j := i; j < r.N; j++ {
-				p3tmp[j] = CRed(p3tmp[j]+MRed(p1tmp[i], p2tmp[j-i], qi, mredParams), qi)
-			}
-		}
-	}
-}
-
-// Exp raises p1 to p1^e and writes the result on p2.
-// IMPROVEMENT : implement Montgomery ladder.
-func (r *Ring) Exp(p1 *Poly, e int, p2 *Poly) {
-
-	r.NTT(p1, p1)
-
-	tmp := r.NewPoly()
-	r.Add(tmp, p1, tmp)
-
-	for i := range r.Modulus {
-		p2tmp := p2.Coeffs[i]
-		for x := 0; x < r.N; x++ {
-			p2tmp[x] = 1
-		}
-	}
-
-	for i := e; i > 0; i >>= 1 {
-		if (i & 1) == 1 {
-			r.MulCoeffs(p2, tmp, p2)
-		}
-		r.MulCoeffs(tmp, p1, tmp)
-	}
-
-	r.InvNTT(p2, p2)
-	r.InvNTT(p1, p2)
 }
 
 // AddScalar adds a scalar to each coefficient of p1 and writes the result on p2.
@@ -996,25 +640,7 @@ func (r *Ring) SubScalarBigint(p1 *Poly, scalar *big.Int, p2 *Poly) {
 
 // MulScalar multiplies each coefficient of p1 by a scalar and writes the result on p2.
 func (r *Ring) MulScalar(p1 *Poly, scalar uint64, p2 *Poly) {
-	for i, Qi := range r.Modulus {
-		scalarMont := MForm(BRedAdd(scalar, Qi, r.BredParams[i]), Qi, r.BredParams[i])
-		mredParams := r.MredParams[i]
-		p1tmp, p2tmp := p1.Coeffs[i], p2.Coeffs[i]
-		for j := 0; j < r.N; j = j + 8 {
-
-			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
-			z := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
-
-			z[0] = MRed(x[0], scalarMont, Qi, mredParams)
-			z[1] = MRed(x[1], scalarMont, Qi, mredParams)
-			z[2] = MRed(x[2], scalarMont, Qi, mredParams)
-			z[3] = MRed(x[3], scalarMont, Qi, mredParams)
-			z[4] = MRed(x[4], scalarMont, Qi, mredParams)
-			z[5] = MRed(x[5], scalarMont, Qi, mredParams)
-			z[6] = MRed(x[6], scalarMont, Qi, mredParams)
-			z[7] = MRed(x[7], scalarMont, Qi, mredParams)
-		}
-	}
+	r.MulScalarLvl(r.minLevelBinary(p1, p2), p1, scalar, p2)
 }
 
 // MulScalarLvl multiplies each coefficient of p1 by a scalar for the moduli from q_0 up to q_level and writes the result on p2.
@@ -1043,27 +669,7 @@ func (r *Ring) MulScalarLvl(level int, p1 *Poly, scalar uint64, p2 *Poly) {
 
 // MulScalarBigint multiplies each coefficient of p1 by a big.Int scalar and writes the result on p2.
 func (r *Ring) MulScalarBigint(p1 *Poly, scalar *big.Int, p2 *Poly) {
-	scalarQi := new(big.Int)
-	for i, Qi := range r.Modulus {
-		scalarQi.Mod(scalar, NewUint(Qi))
-		scalarMont := MForm(BRedAdd(scalarQi.Uint64(), Qi, r.BredParams[i]), Qi, r.BredParams[i])
-		p1tmp, p2tmp := p1.Coeffs[i], p2.Coeffs[i]
-		mredParams := r.MredParams[i]
-		for j := 0; j < r.N; j = j + 8 {
-
-			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
-			z := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
-
-			z[0] = MRed(x[0], scalarMont, Qi, mredParams)
-			z[1] = MRed(x[1], scalarMont, Qi, mredParams)
-			z[2] = MRed(x[2], scalarMont, Qi, mredParams)
-			z[3] = MRed(x[3], scalarMont, Qi, mredParams)
-			z[4] = MRed(x[4], scalarMont, Qi, mredParams)
-			z[5] = MRed(x[5], scalarMont, Qi, mredParams)
-			z[6] = MRed(x[6], scalarMont, Qi, mredParams)
-			z[7] = MRed(x[7], scalarMont, Qi, mredParams)
-		}
-	}
+	r.MulScalarBigintLvl(r.minLevelBinary(p1, p2), p1, scalar, p2)
 }
 
 // MulScalarBigintLvl multiplies each coefficient of p1 by a big.Int scalar
@@ -1103,24 +709,7 @@ func (r *Ring) Shift(p1 *Poly, n int, p2 *Poly) {
 
 // MForm switches p1 to the Montgomery domain and writes the result on p2.
 func (r *Ring) MForm(p1, p2 *Poly) {
-	for i, qi := range r.Modulus {
-		p1tmp, p2tmp := p1.Coeffs[i], p2.Coeffs[i]
-		bredParams := r.BredParams[i]
-		for j := 0; j < r.N; j = j + 8 {
-
-			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
-			z := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
-
-			z[0] = MForm(x[0], qi, bredParams)
-			z[1] = MForm(x[1], qi, bredParams)
-			z[2] = MForm(x[2], qi, bredParams)
-			z[3] = MForm(x[3], qi, bredParams)
-			z[4] = MForm(x[4], qi, bredParams)
-			z[5] = MForm(x[5], qi, bredParams)
-			z[6] = MForm(x[6], qi, bredParams)
-			z[7] = MForm(x[7], qi, bredParams)
-		}
-	}
+	r.MFormLvl(r.minLevelBinary(p1, p2), p1, p2)
 }
 
 // MFormLvl switches p1 to the Montgomery domain for the moduli from q_0 up to q_level and writes the result on p2.
@@ -1148,24 +737,7 @@ func (r *Ring) MFormLvl(level int, p1, p2 *Poly) {
 
 // InvMForm switches back p1 from the Montgomery domain to the conventional domain and writes the result on p2.
 func (r *Ring) InvMForm(p1, p2 *Poly) {
-	for i, qi := range r.Modulus {
-		p1tmp, p2tmp := p1.Coeffs[i], p2.Coeffs[i]
-		mredParams := r.MredParams[i]
-		for j := 0; j < r.N; j = j + 8 {
-
-			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
-			z := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
-
-			z[0] = InvMForm(x[0], qi, mredParams)
-			z[1] = InvMForm(x[1], qi, mredParams)
-			z[2] = InvMForm(x[2], qi, mredParams)
-			z[3] = InvMForm(x[3], qi, mredParams)
-			z[4] = InvMForm(x[4], qi, mredParams)
-			z[5] = InvMForm(x[5], qi, mredParams)
-			z[6] = InvMForm(x[6], qi, mredParams)
-			z[7] = InvMForm(x[7], qi, mredParams)
-		}
-	}
+	r.InvMFormLvl(r.minLevelBinary(p1, p2), p1, p2)
 }
 
 // InvMFormLvl switches back p1 from the Montgomery domain to the conventional domain and writes the result on p2.
@@ -1199,25 +771,7 @@ func (r *Ring) MulByPow2New(p1 *Poly, pow2 int) (p2 *Poly) {
 
 // MulByPow2 multiplies p1 by 2^pow2 and writes the result on p2.
 func (r *Ring) MulByPow2(p1 *Poly, pow2 int, p2 *Poly) {
-	r.MForm(p1, p2)
-	for i, Qi := range r.Modulus {
-		p1tmp, p2tmp := p1.Coeffs[i], p2.Coeffs[i]
-		mredParams := r.MredParams[i]
-		for j := 0; j < r.N; j = j + 8 {
-
-			x := (*[8]uint64)(unsafe.Pointer(&p1tmp[j]))
-			z := (*[8]uint64)(unsafe.Pointer(&p2tmp[j]))
-
-			z[0] = PowerOf2(x[0], pow2, Qi, mredParams)
-			z[1] = PowerOf2(x[1], pow2, Qi, mredParams)
-			z[2] = PowerOf2(x[2], pow2, Qi, mredParams)
-			z[3] = PowerOf2(x[3], pow2, Qi, mredParams)
-			z[4] = PowerOf2(x[4], pow2, Qi, mredParams)
-			z[5] = PowerOf2(x[5], pow2, Qi, mredParams)
-			z[6] = PowerOf2(x[6], pow2, Qi, mredParams)
-			z[7] = PowerOf2(x[7], pow2, Qi, mredParams)
-		}
-	}
+	r.MulByPow2Lvl(r.minLevelBinary(p1, p2), p1, pow2, p2)
 }
 
 // MulByPow2Lvl multiplies p1 by 2^pow2 for the moduli from q_0 up to q_level and writes the result on p2.
@@ -1260,9 +814,7 @@ func (r *Ring) MultByMonomial(p1 *Poly, monomialDeg int, p2 *Poly) {
 
 		for i := range r.Modulus {
 			p1tmp, p2tmp := p1.Coeffs[i], p2.Coeffs[i]
-			for j := 0; j < r.N; j++ {
-				p2tmp[j] = p1tmp[j]
-			}
+			copy(p2tmp, p1tmp)
 		}
 
 	} else {
@@ -1273,9 +825,7 @@ func (r *Ring) MultByMonomial(p1 *Poly, monomialDeg int, p2 *Poly) {
 
 			for i := range r.Modulus {
 				p1tmp, tmpxT := p1.Coeffs[i], tmpx.Coeffs[i]
-				for j := 0; j < r.N; j++ {
-					tmpxT[j] = p1tmp[j]
-				}
+				copy(tmpxT, p1tmp)
 			}
 
 		} else {
@@ -1298,6 +848,58 @@ func (r *Ring) MultByMonomial(p1 *Poly, monomialDeg int, p2 *Poly) {
 		}
 
 		for i := range r.Modulus {
+			p2tmp, tmpxT := p2.Coeffs[i], tmpx.Coeffs[i]
+			for j := shift; j < r.N; j++ {
+				p2tmp[j] = tmpxT[j-shift]
+
+			}
+		}
+	}
+}
+
+// MultByMonomial multiplies p1 by x^monomialDeg and writes the result on p2.
+func (r *Ring) MultByMonomialLvl(level int, p1 *Poly, monomialDeg int, p2 *Poly) {
+
+	shift := monomialDeg % (r.N << 1)
+
+	if shift == 0 {
+
+		for i := range r.Modulus[:level+1] {
+			p1tmp, p2tmp := p1.Coeffs[i], p2.Coeffs[i]
+			copy(p2tmp, p1tmp)
+		}
+
+	} else {
+
+		tmpx := r.NewPoly()
+
+		if shift < r.N {
+
+			for i := range r.Modulus[:level+1] {
+				p1tmp, tmpxT := p1.Coeffs[i], tmpx.Coeffs[i]
+				copy(tmpxT, p1tmp)
+			}
+
+		} else {
+
+			for i, qi := range r.Modulus[:level+1] {
+				p1tmp, tmpxT := p1.Coeffs[i], tmpx.Coeffs[i]
+				for j := 0; j < r.N; j++ {
+					tmpxT[j] = qi - p1tmp[j]
+				}
+			}
+		}
+
+		shift %= r.N
+
+		for i, qi := range r.Modulus[:level+1] {
+			p2tmp, tmpxT := p2.Coeffs[i], tmpx.Coeffs[i]
+			for j := 0; j < shift; j++ {
+				p2tmp[j] = qi - tmpxT[r.N-shift+j]
+			}
+		}
+
+		for i := range r.Modulus[:level+1] {
 			p2tmp, tmpxT := p2.Coeffs[i], tmpx.Coeffs[i]
 			for j := shift; j < r.N; j++ {
 				p2tmp[j] = tmpxT[j-shift]

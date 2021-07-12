@@ -2,10 +2,10 @@ package drlwe
 
 import (
 	"errors"
-
 	"github.com/ldsec/lattigo/v2/ring"
 	"github.com/ldsec/lattigo/v2/rlwe"
 	"github.com/ldsec/lattigo/v2/utils"
+	"math/big"
 )
 
 // RelinearizationKeyGenerator is an interface describing the local steps of a generic RLWE RKG protocol
@@ -20,7 +20,7 @@ type RelinearizationKeyGenerator interface {
 // RKGProtocol is the structure storing the parameters and and precomputations for the collective relinearization key generation protocol.
 type RKGProtocol struct {
 	params          rlwe.Parameters
-	ringP           *ring.Ring
+	pBigInt         *big.Int
 	ringQP          *ring.Ring
 	gaussianSampler *ring.GaussianSampler
 	ternarySampler  *ring.TernarySampler // sampling in Montgomerry form
@@ -38,7 +38,6 @@ type RKGShare struct {
 func NewRKGProtocol(params rlwe.Parameters, ephSkPr float64) *RKGProtocol {
 	rkg := new(RKGProtocol)
 	rkg.params = params
-	rkg.ringP = params.RingP()
 	rkg.ringQP = params.RingQP()
 
 	var err error
@@ -46,6 +45,8 @@ func NewRKGProtocol(params rlwe.Parameters, ephSkPr float64) *RKGProtocol {
 	if err != nil {
 		panic(err) // TODO error
 	}
+
+	rkg.pBigInt = params.PBigInt()
 	rkg.gaussianSampler = ring.NewGaussianSampler(prng, rkg.ringQP, params.Sigma(), int(6*params.Sigma()))
 	rkg.ternarySampler = ring.NewTernarySampler(prng, rkg.ringQP, ephSkPr, true)
 	rkg.tmpPoly1, rkg.tmpPoly2 = rkg.ringQP.NewPoly(), rkg.ringQP.NewPoly()
@@ -74,7 +75,7 @@ func (ekg *RKGProtocol) GenShareRoundOne(sk *rlwe.SecretKey, crp []*ring.Poly, e
 	// Given a base decomposition w_i (here the CRT decomposition)
 	// computes [-u*a_i + P*s_i + e_i]
 	// where a_i = crp_i
-	ekg.ringQP.MulScalarBigint(sk.Value, ekg.ringP.ModulusBigint, ekg.tmpPoly1)
+	ekg.ringQP.MulScalarBigint(sk.Value, ekg.pBigInt, ekg.tmpPoly1)
 	ekg.ringQP.InvMForm(ekg.tmpPoly1, ekg.tmpPoly1)
 
 	ekg.ternarySampler.Read(ephSkOut.Value)

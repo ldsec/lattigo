@@ -161,9 +161,18 @@ func computePowerBasisCheby(n int, C map[int]*Ciphertext, evaluator *evaluator) 
 	if C[n] == nil {
 
 		// Computes the index required to compute the asked ring evaluation
-		a := int(math.Ceil(float64(n) / 2))
-		b := n >> 1
-		c := int(math.Abs(float64(a) - float64(b)))
+
+		var a, b, c int
+		if n&(n-1) == 0 {
+			a, b, c = n/2, n/2, 0 //Necessary for depth optimality
+		} else {
+			// [Lee et al. 2020] : High-Precision and Low-Complexity Approximate Homomorphic Encryption by Error Variance Minimization
+			// Maximize the number of odd terms of Chebyshev basis
+			k := int(math.Ceil(math.Log2(float64(n)))) - 1
+			a = (1 << k) - 1
+			b = n + 1 - (1 << k)
+			c = int(math.Abs(float64(a) - float64(b)))
+		}
 
 		// Recurses on the given indexes
 		if err = computePowerBasisCheby(a, C, evaluator); err != nil {
@@ -302,7 +311,7 @@ func recurse(targetScale float64, logSplit, logDegree int, coeffs *Poly, C map[i
 	//fmt.Printf("X^%2d : qi %d %t %d %d\n", nextPower, level, coeffsq.lead, coeffsq.maxDeg, 1<<(logDegree-1))
 	//fmt.Println()
 	var tmp *Ciphertext
-	if res, err = recurse(targetScale*currentQi/C[nextPower].Scale(), logSplit, logDegree, coeffsq, C, evaluator); err != nil {
+	if res, err = recurse(targetScale*currentQi/C[nextPower].Scale, logSplit, logDegree, coeffsq, C, evaluator); err != nil {
 		return nil, err
 	}
 
@@ -375,7 +384,7 @@ func recurseCheby(targetScale float64, logSplit, logDegree int, coeffs *Poly, C 
 	//fmt.Printf("X^%2d : qi %d %t %d %d\n", nextPower, level, coeffsq.lead, coeffsq.maxDeg, 1<<(logDegree-1))
 	//fmt.Println()
 
-	if res, err = recurseCheby(targetScale*currentQi/C[nextPower].Scale(), logSplit, logDegree, coeffsq, C, evaluator); err != nil {
+	if res, err = recurseCheby(targetScale*currentQi/C[nextPower].Scale, logSplit, logDegree, coeffsq, C, evaluator); err != nil {
 		return nil, err
 	}
 
@@ -445,7 +454,7 @@ func evaluatePolyFromPowerBasis(targetScale float64, coeffs *Poly, C map[int]*Ci
 		if key != 0 && (math.Abs(real(coeffs.coeffs[key])) > 1e-14 || math.Abs(imag(coeffs.coeffs[key])) > 1e-14) {
 
 			// Target scale * rescale-scale / power basis scale
-			constScale := targetScale * currentQi / C[key].Scale()
+			constScale := targetScale * currentQi / C[key].Scale
 
 			cReal := int64(real(coeffs.coeffs[key]) * constScale)
 			cImag := int64(imag(coeffs.coeffs[key]) * constScale)

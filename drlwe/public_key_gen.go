@@ -7,7 +7,7 @@ import (
 	"github.com/ldsec/lattigo/v2/utils"
 )
 
-// CollectivePublicKeyGenerator is an interface describing the local steps of a generic RLWE CKG protocol
+// CollectivePublicKeyGenerator is an interface describing the local steps of a generic RLWE CKG protocol.
 type CollectivePublicKeyGenerator interface {
 	AllocateShares() *CKGShare
 	GenShare(sk *rlwe.SecretKey, crs *ring.Poly, shareOut *CKGShare)
@@ -19,8 +19,6 @@ type CollectivePublicKeyGenerator interface {
 type CKGProtocol struct {
 	params rlwe.Parameters
 
-	ringQ           *ring.Ring
-	ringP           *ring.Ring
 	ringQP          *ring.Ring
 	gaussianSampler *ring.GaussianSampler
 }
@@ -44,8 +42,6 @@ func NewCKGProtocol(params rlwe.Parameters) *CKGProtocol { // TODO drlwe.Params
 
 	ckg := new(CKGProtocol)
 	ckg.params = params
-	ckg.ringQ = params.RingQ()
-	ckg.ringP = params.RingP()
 	ckg.ringQP = params.RingQP()
 
 	var err error

@@ -1,25 +1,83 @@
 package rlwe
 
 import (
-	"fmt"
+	"math/big"
 
 	"github.com/ldsec/lattigo/v2/ring"
 	"github.com/ldsec/lattigo/v2/utils"
 )
 
+// Ciphertext is a common interface for RLWE ciphertexts.
+type Ciphertext interface {
+	RLWEElement() *Element
+}
+
+// Plaintext is a common base type for RLWE plaintexts.
+type Plaintext struct {
+	Value *ring.Poly
+}
+
+// AdditiveShare is a type for storing additively shared values in Z_Q[X] (RNS domain)
+type AdditiveShare struct {
+	Value ring.Poly
+}
+
+// AdditiveShareBigint is a type for storing additively shared values
+// in Z (positional domain)
+type AdditiveShareBigint struct {
+	Value []*big.Int
+}
+
+// NewAdditiveShare instantiate a new additive share struct for the ring defined
+// by the given parameters at level `level`.
+func NewAdditiveShare(params Parameters, level int) AdditiveShare {
+	return AdditiveShare{Value: *ring.NewPoly(params.N(), level+1)}
+}
+
+// NewAdditiveShareBigint instantiate a new additive share struct composed of big.Int elements
+func NewAdditiveShareBigint(params Parameters) AdditiveShareBigint {
+	v := make([]*big.Int, params.N())
+	for i := range v {
+		v[i] = new(big.Int)
+	}
+	return AdditiveShareBigint{Value: v}
+}
+
+// NewPlaintext creates a new Plaintext at level `level` from the parameters.
+func NewPlaintext(params Parameters, level int) *Plaintext {
+	return &Plaintext{Value: ring.NewPoly(params.N(), level+1)}
+}
+
+// Degree returns the degree of the target element.
+func (pt Plaintext) Degree() int {
+	return 0
+}
+
+// Level returns the level of the target element.
+func (pt Plaintext) Level() int {
+	return len(pt.Value.Coeffs) - 1
+}
+
+// El returns the plaintext as a new `Element` for which the value points
+// to the receiver `Value` field.
+func (pt Plaintext) El() *Element {
+	return &Element{Value: []*ring.Poly{pt.Value}}
+}
+
+// Copy copies the `other` plaintext value into the reciever plaintext.
+func (pt *Plaintext) Copy(other *Plaintext) {
+	if other != nil && other.Value != nil {
+		pt.Value.Copy(other.Value)
+	}
+}
+
 // Element is a generic type for ciphertext and plaintexts
 type Element struct {
 	Value []*ring.Poly
-	IsNTT bool
 }
 
 // NewElement returns a new Element with zero values.
-func NewElement(params Parameters, degree int) *Element {
-	return NewElementAtLevel(params, degree, params.QCount()-1)
-}
-
-// NewElementAtLevel returns a new Element with zero values.
-func NewElementAtLevel(params Parameters, degree, level int) *Element {
+func NewElement(params Parameters, degree, level int) *Element {
 	el := new(Element)
 	el.Value = make([]*ring.Poly, degree+1)
 	for i := 0; i < degree+1; i++ {
@@ -44,6 +102,8 @@ func (el *Element) Level() int {
 }
 
 // Resize resizes the degree of the target element.
+// Sets the NTT flag of the added poly equal to the NTT flag
+// to the poly at degree zero.
 func (el *Element) Resize(params Parameters, degree int) {
 	if el.Degree() > degree {
 		el.Value = el.Value[:degree+1]
@@ -53,34 +113,9 @@ func (el *Element) Resize(params Parameters, degree int) {
 			el.Value[el.Degree()].Coeffs = make([][]uint64, el.Level()+1)
 			for i := 0; i < el.Level()+1; i++ {
 				el.Value[el.Degree()].Coeffs[i] = make([]uint64, params.N())
+				el.Value[el.Degree()].IsNTT = el.Value[0].IsNTT
 			}
 		}
-	}
-}
-
-// NTT puts the target element in the NTT domain and sets its isNTT flag to true. If it is already in the NTT domain, it does nothing.
-func (el *Element) NTT(ringQ *ring.Ring, c *Element) {
-	if el.Degree() != c.Degree() {
-		panic(fmt.Errorf("error: receiver element has invalid degree (it does not match)"))
-	}
-	if !el.IsNTT {
-		for i := range el.Value {
-			ringQ.NTTLvl(el.Level(), el.Value[i], c.Value[i])
-		}
-		c.IsNTT = true
-	}
-}
-
-// InvNTT puts the target element outside of the NTT domain, and sets its isNTT flag to false. If it is not in the NTT domain, it does nothing.
-func (el *Element) InvNTT(ringQ *ring.Ring, c *Element) {
-	if el.Degree() != c.Degree() {
-		panic(fmt.Errorf("error: receiver element invalid degree (it does not match)"))
-	}
-	if el.IsNTT {
-		for i := range el.Value {
-			ringQ.InvNTTLvl(el.Level(), el.Value[i], c.Value[i])
-		}
-		c.IsNTT = false
 	}
 }
 
@@ -94,8 +129,6 @@ func (el *Element) CopyNew() *Element {
 		ctxCopy.Value[i] = el.Value[i].CopyNew()
 	}
 
-	ctxCopy.IsNTT = el.IsNTT
-
 	return ctxCopy
 }
 
@@ -106,13 +139,16 @@ func (el *Element) Copy(ctxCopy *Element) {
 		for i := range ctxCopy.Value {
 			el.Value[i].Copy(ctxCopy.Value[i])
 		}
-
-		el.IsNTT = ctxCopy.IsNTT
 	}
 }
 
-// El sets the target element type to Element.
+// El returns a pointer to this Element
 func (el *Element) El() *Element {
+	return el
+}
+
+// RLWEElement returns a pointer to this Element
+func (el *Element) RLWEElement() *Element {
 	return el
 }
 

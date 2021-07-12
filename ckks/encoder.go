@@ -166,8 +166,8 @@ func (encoder *encoderComplex128) EncodeAtLvlNew(level int, values []complex128,
 // Encode encodes a slice of complex128 of length slots = 2^{logSlots} on the input plaintext.
 func (encoder *encoderComplex128) Encode(plaintext *Plaintext, values []complex128, logSlots int) {
 	encoder.Embed(values, logSlots)
-	encoder.ScaleUp(plaintext.value, plaintext.scale, encoder.ringQ.Modulus[:plaintext.Level()+1])
-	plaintext.Element.Element.IsNTT = false
+	encoder.ScaleUp(plaintext.Value, plaintext.Scale, encoder.ringQ.Modulus[:plaintext.Level()+1])
+	plaintext.Value.IsNTT = false
 }
 
 // EncodeNTTNew encodes a slice of complex128 of length slots = 2^{logSlots} on new plaintext at the maximum level.
@@ -188,8 +188,8 @@ func (encoder *encoderComplex128) EncodeNTTAtLvlNew(level int, values []complex1
 // Returns a plaintext in the NTT domain.
 func (encoder *encoderComplex128) EncodeNTT(plaintext *Plaintext, values []complex128, logSlots int) {
 	encoder.Encode(plaintext, values, logSlots)
-	encoder.ringQ.NTTLvl(plaintext.Level(), plaintext.value, plaintext.value)
-	plaintext.Element.Element.IsNTT = true
+	encoder.ringQ.NTTLvl(plaintext.Level(), plaintext.Value, plaintext.Value)
+	plaintext.Value.IsNTT = true
 }
 
 // Embed encodes a vector and stores internally the encoded values.
@@ -561,10 +561,10 @@ func (encoder *encoderComplex128) decodePublic(plaintext *Plaintext, logSlots in
 
 	slots := 1 << logSlots
 
-	if plaintext.IsNTT() {
-		encoder.ringQ.InvNTTLvl(plaintext.Level(), plaintext.value, encoder.polypool)
+	if plaintext.Value.IsNTT {
+		encoder.ringQ.InvNTTLvl(plaintext.Level(), plaintext.Value, encoder.polypool)
 	} else {
-		encoder.ringQ.CopyLvl(plaintext.Level(), plaintext.value, encoder.polypool)
+		ring.CopyValuesLvl(plaintext.Level(), plaintext.Value, encoder.polypool)
 	}
 
 	// B = floor(sigma * sqrt(2*pi))
@@ -572,7 +572,7 @@ func (encoder *encoderComplex128) decodePublic(plaintext *Plaintext, logSlots in
 		encoder.gaussianSampler.ReadAndAddFromDistLvl(plaintext.Level(), encoder.polypool, encoder.ringQ, sigma, int(2.5066282746310002*sigma))
 	}
 
-	encoder.plaintextToComplex(plaintext.Level(), plaintext.Scale(), logSlots, encoder.polypool, encoder.values)
+	encoder.plaintextToComplex(plaintext.Level(), plaintext.Scale, logSlots, encoder.polypool, encoder.values)
 
 	fft(encoder.values, slots, encoder.m, encoder.rotGroup, encoder.roots)
 
@@ -615,7 +615,7 @@ func invfft(values []complex128, N, M int, rotGroup []int, roots []complex128) {
 		values[i] /= complex(float64(N), 0)
 	}
 
-	sliceBitReverseInPlaceComplex128(values, N)
+	SliceBitReverseInPlaceComplex128(values, N)
 }
 
 func fft(values []complex128, N, M int, rotGroup []int, roots []complex128) {
@@ -623,7 +623,7 @@ func fft(values []complex128, N, M int, rotGroup []int, roots []complex128) {
 	var lenh, lenq, gap, idx int
 	var u, v complex128
 
-	sliceBitReverseInPlaceComplex128(values, N)
+	SliceBitReverseInPlaceComplex128(values, N)
 
 	for len := 2; len <= N; len <<= 1 {
 		for i := 0; i < N; i += len {
@@ -650,17 +650,17 @@ func (encoder *encoderComplex128) EncodeCoeffs(values []float64, plaintext *Plai
 		panic("cannot EncodeCoeffs : too many values (maximum is N)")
 	}
 
-	scaleUpVecExact(values, plaintext.scale, encoder.ringQ.Modulus[:plaintext.Level()+1], plaintext.value.Coeffs)
+	scaleUpVecExact(values, plaintext.Scale, encoder.ringQ.Modulus[:plaintext.Level()+1], plaintext.Value.Coeffs)
 
-	plaintext.Element.Element.IsNTT = false
+	plaintext.Value.IsNTT = false
 }
 
 // EncodeCoeffsNTT takes as input a polynomial a0 + a1x + a2x^2 + ... + an-1x^n-1 with float coefficient
 // and returns a scaled integer plaintext polynomial in NTT. Encodes at the input plaintext level.
 func (encoder *encoderComplex128) EncodeCoeffsNTT(values []float64, plaintext *Plaintext) {
 	encoder.EncodeCoeffs(values, plaintext)
-	encoder.ringQ.NTTLvl(plaintext.Level(), plaintext.value, plaintext.value)
-	plaintext.Element.Element.IsNTT = true
+	encoder.ringQ.NTTLvl(plaintext.Level(), plaintext.Value, plaintext.Value)
+	plaintext.Value.IsNTT = true
 }
 
 // DecodeCoeffsPublic takes as input a plaintext and returns the scaled down coefficient of the plaintext in float64.
@@ -676,10 +676,10 @@ func (encoder *encoderComplex128) DecodeCoeffs(plaintext *Plaintext) (res []floa
 // DecodeCoeffs takes as input a plaintext and returns the scaled down coefficient of the plaintext in float64.
 func (encoder *encoderComplex128) decodeCoeffsPublic(plaintext *Plaintext, sigma float64) (res []float64) {
 
-	if plaintext.IsNTT() {
-		encoder.ringQ.InvNTTLvl(plaintext.Level(), plaintext.value, encoder.polypool)
+	if plaintext.Value.IsNTT {
+		encoder.ringQ.InvNTTLvl(plaintext.Level(), plaintext.Value, encoder.polypool)
 	} else {
-		encoder.ringQ.CopyLvl(plaintext.Level(), plaintext.value, encoder.polypool)
+		ring.CopyValuesLvl(plaintext.Level(), plaintext.Value, encoder.polypool)
 	}
 
 	if sigma != 0 {
@@ -711,7 +711,7 @@ func (encoder *encoderComplex128) decodeCoeffsPublic(plaintext *Plaintext, sigma
 				encoder.bigintCoeffs[i].Sub(encoder.bigintCoeffs[i], Q)
 			}
 
-			res[i] = scaleDown(encoder.bigintCoeffs[i], plaintext.scale)
+			res[i] = scaleDown(encoder.bigintCoeffs[i], plaintext.Scale)
 		}
 		// We can directly get the coefficients
 	} else {
@@ -727,7 +727,7 @@ func (encoder *encoderComplex128) decodeCoeffsPublic(plaintext *Plaintext, sigma
 				res[i] = float64(coeffs[i])
 			}
 
-			res[i] /= plaintext.scale
+			res[i] /= plaintext.Scale
 		}
 	}
 
@@ -826,8 +826,8 @@ func (encoder *encoderBigComplex) EncodeNTTAtLvlNew(level int, values []*ring.Co
 // Returns a plaintext in the NTT domain.
 func (encoder *encoderBigComplex) EncodeNTT(plaintext *Plaintext, values []*ring.Complex, logSlots int) {
 	encoder.Encode(plaintext, values, logSlots)
-	encoder.ringQ.NTTLvl(plaintext.Level(), plaintext.value, plaintext.value)
-	plaintext.Element.Element.IsNTT = true
+	encoder.ringQ.NTTLvl(plaintext.Level(), plaintext.Value, plaintext.Value)
+	plaintext.Value.IsNTT = true
 }
 
 // Encode encodes a slice of ring.Complex of length slots = 2^{logSlots} on a plaintext at the input plaintext level.
@@ -856,11 +856,11 @@ func (encoder *encoderBigComplex) Encode(plaintext *Plaintext, values []*ring.Co
 		encoder.valuesfloat[jdx].Set(encoder.values[i].Imag())
 	}
 
-	scaleUpVecExactBigFloat(encoder.valuesfloat, plaintext.scale, encoder.ringQ.Modulus[:plaintext.Level()+1], plaintext.value.Coeffs)
+	scaleUpVecExactBigFloat(encoder.valuesfloat, plaintext.Scale, encoder.ringQ.Modulus[:plaintext.Level()+1], plaintext.Value.Coeffs)
 
 	coeffsBigInt := make([]*big.Int, encoder.params.N())
 
-	encoder.ringQ.PolyToBigint(plaintext.value, coeffsBigInt)
+	encoder.ringQ.PolyToBigint(plaintext.Value, coeffsBigInt)
 
 	for i := 0; i < (encoder.ringQ.N >> 1); i++ {
 		encoder.values[i].Real().Set(encoder.zero)
@@ -891,7 +891,7 @@ func (encoder *encoderBigComplex) decodePublic(plaintext *Plaintext, logSlots in
 		panic("cannot Decode: too many slots for the given ring degree")
 	}
 
-	encoder.ringQ.InvNTTLvl(plaintext.Level(), plaintext.value, encoder.polypool)
+	encoder.ringQ.InvNTTLvl(plaintext.Level(), plaintext.Value, encoder.polypool)
 
 	if sigma != 0 {
 		// B = floor(sigma * sqrt(2*pi))
@@ -904,7 +904,7 @@ func (encoder *encoderBigComplex) decodePublic(plaintext *Plaintext, logSlots in
 
 	maxSlots := encoder.ringQ.N >> 1
 
-	scaleFlo := ring.NewFloat(plaintext.Scale(), encoder.logPrecision)
+	scaleFlo := ring.NewFloat(plaintext.Scale, encoder.logPrecision)
 
 	encoder.qHalf.Set(Q)
 	encoder.qHalf.Rsh(encoder.qHalf, 1)
@@ -981,7 +981,7 @@ func (encoder *encoderBigComplex) InvFFT(values []*ring.Complex, N int) {
 		values[i][1].Quo(values[i][1], NBig)
 	}
 
-	sliceBitReverseInPlaceRingComplex(values, N)
+	SliceBitReverseInPlaceRingComplex(values, N)
 }
 
 // FFT evaluates the decoding matrix on a slice fo ring.Complex values.
@@ -992,7 +992,7 @@ func (encoder *encoderBigComplex) FFT(values []*ring.Complex, N int) {
 	u := ring.NewComplex(nil, nil)
 	v := ring.NewComplex(nil, nil)
 
-	sliceBitReverseInPlaceRingComplex(values, N)
+	SliceBitReverseInPlaceRingComplex(values, N)
 
 	for len := 2; len <= N; len <<= 1 {
 		for i := 0; i < N; i += len {

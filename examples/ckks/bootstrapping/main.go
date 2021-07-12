@@ -18,8 +18,8 @@ func main() {
 	var encoder ckks.Encoder
 	var sk *rlwe.SecretKey
 	var pk *rlwe.PublicKey
-	var encryptor ckks.Encryptor
-	var decryptor ckks.Decryptor
+	var encryptor *ckks.Encryptor
+	var decryptor *ckks.Decryptor
 	var plaintext *ckks.Plaintext
 
 	// Bootstrapping parameters
@@ -44,7 +44,7 @@ func main() {
 
 	encoder = ckks.NewEncoder(params)
 	decryptor = ckks.NewDecryptor(params, sk)
-	encryptor = ckks.NewEncryptorFromPk(params, pk)
+	encryptor = ckks.NewEncryptor(params, pk)
 
 	fmt.Println()
 	fmt.Println("Generating bootstrapping keys...")
@@ -89,13 +89,13 @@ func main() {
 	printDebug(params, ciphertext2, valuesTest1, decryptor, encoder)
 }
 
-func printDebug(params ckks.Parameters, ciphertext *ckks.Ciphertext, valuesWant []complex128, decryptor ckks.Decryptor, encoder ckks.Encoder) (valuesTest []complex128) {
+func printDebug(params ckks.Parameters, ciphertext *ckks.Ciphertext, valuesWant []complex128, decryptor *ckks.Decryptor, encoder ckks.Encoder) (valuesTest []complex128) {
 
 	valuesTest = encoder.Decode(decryptor.DecryptNew(ciphertext), params.LogSlots())
 
 	fmt.Println()
 	fmt.Printf("Level: %d (logQ = %d)\n", ciphertext.Level(), params.LogQLvl(ciphertext.Level()))
-	fmt.Printf("Scale: 2^%f\n", math.Log2(ciphertext.Scale()))
+	fmt.Printf("Scale: 2^%f\n", math.Log2(ciphertext.Scale))
 	fmt.Printf("ValuesTest: %6.10f %6.10f %6.10f %6.10f...\n", valuesTest[0], valuesTest[1], valuesTest[2], valuesTest[3])
 	fmt.Printf("ValuesWant: %6.10f %6.10f %6.10f %6.10f...\n", valuesWant[0], valuesWant[1], valuesWant[2], valuesWant[3])
 

@@ -45,7 +45,7 @@ func benchPublicKeyGen(testCtx *testContext, b *testing.B) {
 
 	sk0Shards := testCtx.sk0Shards
 
-	crpGenerator := ring.NewUniformSampler(testCtx.prng, testCtx.dbfvContext.ringQP)
+	crpGenerator := ring.NewUniformSampler(testCtx.prng, testCtx.ringQP)
 
 	crp := crpGenerator.ReadNew()
 
@@ -102,7 +102,7 @@ func benchRelinKeyGen(testCtx *testContext, b *testing.B) {
 	p.ephSk, p.share1, p.share2 = p.RKGProtocol.AllocateShares()
 	p.rlk = bfv.NewRelinearizationKey(testCtx.params, 2)
 
-	crpGenerator := ring.NewUniformSampler(testCtx.prng, testCtx.dbfvContext.ringQP)
+	crpGenerator := ring.NewUniformSampler(testCtx.prng, testCtx.ringQP)
 
 	crp := make([]*ring.Poly, testCtx.params.Beta())
 
@@ -148,18 +148,18 @@ func benchKeyswitching(testCtx *testContext, b *testing.B) {
 
 	type Party struct {
 		*CKSProtocol
-		s0    *ring.Poly
-		s1    *ring.Poly
-		share CKSShare
+		s0    *rlwe.SecretKey
+		s1    *rlwe.SecretKey
+		share *drlwe.CKSShare
 	}
+
+	ciphertext := bfv.NewCiphertextRandom(testCtx.prng, testCtx.params, 1)
 
 	p := new(Party)
 	p.CKSProtocol = NewCKSProtocol(testCtx.params, 6.36)
-	p.s0 = sk0Shards[0].Value
-	p.s1 = sk1Shards[0].Value
-	p.share = p.AllocateShare()
-
-	ciphertext := bfv.NewCiphertextRandom(testCtx.prng, testCtx.params, 1)
+	p.s0 = sk0Shards[0]
+	p.s1 = sk1Shards[0]
+	p.share = p.AllocateShare(ciphertext.Level())
 
 	b.Run(testString("Keyswitching/Round1/Gen", parties, testCtx.params), func(b *testing.B) {
 
@@ -192,14 +192,14 @@ func benchPublicKeySwitching(testCtx *testContext, b *testing.B) {
 
 	type Party struct {
 		*PCKSProtocol
-		s     *ring.Poly
-		share PCKSShare
+		s     *rlwe.SecretKey
+		share *drlwe.PCKSShare
 	}
 
 	p := new(Party)
 	p.PCKSProtocol = NewPCKSProtocol(testCtx.params, 6.36)
-	p.s = sk0Shards[0].Value
-	p.share = p.AllocateShares()
+	p.s = sk0Shards[0]
+	p.share = p.AllocateShares(ciphertext.Level())
 
 	b.Run(testString("PublicKeySwitching/Round1/Gen", parties, testCtx.params), func(b *testing.B) {
 
@@ -239,7 +239,7 @@ func benchRotKeyGen(testCtx *testContext, b *testing.B) {
 	p.s = sk0Shards[0]
 	p.share = p.AllocateShares()
 
-	crpGenerator := ring.NewUniformSampler(testCtx.prng, testCtx.dbfvContext.ringQP)
+	crpGenerator := ring.NewUniformSampler(testCtx.prng, testCtx.ringQP)
 	crp := make([]*ring.Poly, testCtx.params.Beta())
 
 	for i := 0; i < testCtx.params.Beta(); i++ {
@@ -275,16 +275,16 @@ func benchRefresh(testCtx *testContext, b *testing.B) {
 
 	type Party struct {
 		*RefreshProtocol
-		s     *ring.Poly
+		s     *rlwe.SecretKey
 		share RefreshShare
 	}
 
 	p := new(Party)
-	p.RefreshProtocol = NewRefreshProtocol(testCtx.params)
-	p.s = sk0Shards[0].Value
+	p.RefreshProtocol = NewRefreshProtocol(testCtx.params, 3.2)
+	p.s = sk0Shards[0]
 	p.share = p.AllocateShares()
 
-	crpGenerator := ring.NewUniformSampler(testCtx.prng, testCtx.dbfvContext.ringQP)
+	crpGenerator := ring.NewUniformSampler(testCtx.prng, testCtx.ringQ)
 	crp := crpGenerator.ReadNew()
 
 	ciphertext := bfv.NewCiphertextRandom(testCtx.prng, testCtx.params, 1)
