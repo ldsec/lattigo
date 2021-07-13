@@ -46,23 +46,63 @@ type ParametersLiteral struct {
 // Parameters represents a set of generic RLWE parameters. Its fields are private and
 // immutable. See ParametersLiteral for user-specified parameters.
 type Parameters struct {
-	logN  int
-	qi    []uint64
-	pi    []uint64
-	sigma float64
+	logN   int
+	qi     []uint64
+	pi     []uint64
+	sigma  float64
+	ringQ  *ring.Ring
+	ringP  *ring.Ring
+	ringQP *ring.Ring
 }
+
+var (
+	// TestPN12QP109 is a set of default parameters with logN=12 and logQP=109
+	TestPN12QP109 = ParametersLiteral{
+		LogN:  12,
+		Q:     []uint64{0x7ffffec001, 0x40002001}, // 39 + 39 bits
+		P:     []uint64{0x8000016001},             // 30 bits
+		Sigma: DefaultSigma,
+	}
+	// TestPN13QP218 is a set of default parameters with logN=13 and logQP=218
+	TestPN13QP218 = ParametersLiteral{
+		LogN:  13,
+		Q:     []uint64{0x3fffffffef8001, 0x4000000011c001, 0x40000000120001}, // 54 + 54 + 54 bits
+		P:     []uint64{0x7ffffffffb4001},                                     // 55 bits
+		Sigma: DefaultSigma,
+	}
+
+	// TestPN14QP438 is a set of default parameters with logN=14 and logQP=438
+	TestPN14QP438 = ParametersLiteral{
+		LogN: 14,
+		Q: []uint64{0x100000000060001, 0x80000000068001, 0x80000000080001,
+			0x3fffffffef8001, 0x40000000120001, 0x3fffffffeb8001}, // 56 + 55 + 55 + 54 + 54 + 54 bits
+		P:     []uint64{0x80000000130001, 0x7fffffffe90001}, // 55 + 55 bits
+		Sigma: DefaultSigma,
+	}
+
+	// TestPN15QP880 is a set of default parameters with logN=15 and logQP=880
+	TestPN15QP880 = ParametersLiteral{
+		LogN: 15,
+		Q: []uint64{0x7ffffffffe70001, 0x7ffffffffe10001, 0x7ffffffffcc0001, // 59 + 59 + 59 bits
+			0x400000000270001, 0x400000000350001, 0x400000000360001, // 58 + 58 + 58 bits
+			0x3ffffffffc10001, 0x3ffffffffbe0001, 0x3ffffffffbd0001, // 58 + 58 + 58 bits
+			0x4000000004d0001, 0x400000000570001, 0x400000000660001}, // 58 + 58 + 58 bits
+		P:     []uint64{0xffffffffffc0001, 0x10000000001d0001, 0x10000000006e0001}, // 60 + 60 + 60 bits
+		Sigma: DefaultSigma,
+	}
+)
 
 // NewParameters returns a new set of generic RLWE parameters from the given ring degree logn, moduli q and p, and
 // error distribution parameter sigma. It returns the empty parameters Parameters{} and a non-nil error if the
 // specified parameters are invalid.
 func NewParameters(logn int, q, p []uint64, sigma float64) (Parameters, error) {
-
-	if err := checkSizeParams(logn, len(q), len(p)); err != nil {
+	var err error
+	if err = checkSizeParams(logn, len(q), len(p)); err != nil {
 		return Parameters{}, err
 	}
 
 	// Checks if moduli are valid
-	if err := CheckModuli(q, p, logn); err != nil {
+	if err = CheckModuli(q, p, logn); err != nil {
 		return Parameters{}, err
 	}
 
@@ -72,6 +112,21 @@ func NewParameters(logn int, q, p []uint64, sigma float64) (Parameters, error) {
 		qi:    make([]uint64, len(q)),
 		sigma: sigma,
 	}
+
+	if params.ringQ, err = ring.NewRing(1<<logn, q); err != nil {
+		return Parameters{}, err
+	}
+
+	if len(p) != 0 {
+		if params.ringP, err = ring.NewRing(1<<logn, p); err != nil {
+			return Parameters{}, err
+		}
+	}
+
+	if params.ringQP, err = ring.NewRing(1<<logn, append(q, p...)); err != nil {
+		return Parameters{}, err
+	}
+
 	copy(params.qi, q)
 	copy(params.pi, p)
 	return params, nil
@@ -104,9 +159,29 @@ func (p Parameters) LogN() int {
 	return p.logN
 }
 
+// RingQ returns a pointer to ringQ
+func (p Parameters) RingQ() *ring.Ring {
+	return p.ringQ
+}
+
+// RingP returns a pointer to ringP
+func (p Parameters) RingP() *ring.Ring {
+	return p.ringP
+}
+
+// RingQP returns a pointer to ringQP
+func (p Parameters) RingQP() *ring.Ring {
+	return p.ringQP
+}
+
 // Sigma returns standard deviation of the noise distribution
 func (p Parameters) Sigma() float64 {
 	return p.sigma
+}
+
+// MaxLevel returns the maximum level of a ciphertext
+func (p Parameters) MaxLevel() int {
+	return p.QCount() - 1
 }
 
 // Q returns a new slice with the factors of the ciphertext modulus q
@@ -171,6 +246,24 @@ func (p Parameters) QPBigInt() *big.Int {
 	return pqInt
 }
 
+// LogQ returns the size of the extended modulus Q in bits
+func (p Parameters) LogQ() int {
+	tmp := ring.NewUint(1)
+	for _, qi := range p.qi {
+		tmp.Mul(tmp, ring.NewUint(qi))
+	}
+	return tmp.BitLen()
+}
+
+// LogP returns the size of the extended modulus P in bits
+func (p Parameters) LogP() int {
+	tmp := ring.NewUint(1)
+	for _, pi := range p.pi {
+		tmp.Mul(tmp, ring.NewUint(pi))
+	}
+	return tmp.BitLen()
+}
+
 // LogQP returns the size of the extended modulus QP in bits
 func (p Parameters) LogQP() int {
 	tmp := ring.NewUint(1)
@@ -207,36 +300,6 @@ func (p *Parameters) QiOverflowMargin(level int) int {
 // be added together before overflowing 2^64.
 func (p *Parameters) PiOverflowMargin() int {
 	return int(math.Exp2(64) / float64(utils.MaxSliceUint64(p.pi)))
-}
-
-// RingQ instantiates a new ring.Ring corresponding to the ciphertext space ring R_q.
-func (p Parameters) RingQ() *ring.Ring {
-	ringQ, err := ring.NewRing(p.N(), p.qi)
-	if err != nil {
-		panic(err) // Parameter type invariant
-	}
-	return ringQ
-}
-
-// RingP instantiates a new ring.Ring corresponding to the ciphertext space extention ring R_p.
-func (p Parameters) RingP() *ring.Ring {
-	if len(p.pi) == 0 {
-		return nil
-	}
-	ringP, err := ring.NewRing(p.N(), p.pi)
-	if err != nil {
-		panic(err) // Parameter type invariant
-	}
-	return ringP
-}
-
-// RingQP instantiates a new ring.Ring corresponding to the extended ciphertext space ring R_qp.
-func (p Parameters) RingQP() *ring.Ring {
-	ringQP, err := ring.NewRing(p.N(), append(p.qi, p.pi...))
-	if err != nil {
-		panic(err) // Parameter type invariant
-	}
-	return ringQP
 }
 
 // GaloisElementForColumnRotationBy returns the galois element for plaintext

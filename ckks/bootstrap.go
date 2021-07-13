@@ -40,10 +40,10 @@ func (btp *Bootstrapper) Bootstrapp(ct *Ciphertext) *Ciphertext {
 
 		// and does an integer constant mult by round((Q0/Delta_m)/ctscle)
 
-		if btp.prescale < ct.Scale() {
+		if btp.prescale < ct.Scale {
 			panic("ciphetext scale > Q[0]/(Q[0]/Delta_m)")
 		}
-		btp.evaluator.ScaleUp(ct, math.Round(btp.prescale/ct.Scale()), ct)
+		btp.evaluator.ScaleUp(ct, math.Round(btp.prescale/ct.Scale), ct)
 	}
 
 	// ModUp ct_{Q_0} -> ct_{Q_L}
@@ -52,7 +52,7 @@ func (btp *Bootstrapper) Bootstrapp(ct *Ciphertext) *Ciphertext {
 	//log.Println("After ModUp  :", time.Now().Sub(t), ct.Level(), ct.Scale())
 
 	// Brings the ciphertext scale to sineQi/(Q0/scale) if its under
-	btp.evaluator.ScaleUp(ct, math.Round(btp.postscale/ct.Scale()), ct)
+	btp.evaluator.ScaleUp(ct, math.Round(btp.postscale/ct.Scale), ct)
 
 	//SubSum X -> (N/dslots) * Y^dslots
 	//t = time.Now()
@@ -73,7 +73,7 @@ func (btp *Bootstrapper) Bootstrapp(ct *Ciphertext) *Ciphertext {
 	//t = time.Now()
 	ct0 = SlotsToCoeffs(ct0, ct1, btp.pDFT, btp.evaluator)
 
-	ct0.SetScale(math.Exp2(math.Round(math.Log2(ct0.Scale())))) // rounds to the nearest power of two
+	ct0.Scale = math.Exp2(math.Round(math.Log2(ct0.Scale))) // rounds to the nearest power of two
 	//log.Println("After StC    :", time.Now().Sub(t), ct0.Level(), ct0.Scale())
 	return ct0
 }
@@ -94,7 +94,9 @@ func (btp *Bootstrapper) modUp(ct *Ciphertext) *Ciphertext {
 
 	ringQ := btp.evaluator.ringQ
 
-	ct.InvNTT(ringQ, &ct.Element.Element)
+	for i := range ct.Value {
+		ringQ.InvNTTLvl(ct.Level(), ct.Value[i], ct.Value[i])
+	}
 
 	// Extend the ciphertext with zero polynomials.
 	for u := range ct.Value {
@@ -128,7 +130,9 @@ func (btp *Bootstrapper) modUp(ct *Ciphertext) *Ciphertext {
 		}
 	}
 
-	ct.NTT(ringQ, &ct.Element.Element)
+	for i := range ct.Value {
+		ringQ.NTTLvl(ct.Level(), ct.Value[i], ct.Value[i])
+	}
 
 	return ct
 }
@@ -181,7 +185,7 @@ func dft(vec *Ciphertext, plainVectors []*PtDiagMatrix, forward bool, eval Evalu
 
 	// Sequentially multiplies w with the provided dft matrices.
 	for _, plainVector := range plainVectors {
-		scale := vec.Scale()
+		scale := vec.Scale
 		vec = eval.LinearTransform(vec, plainVector)[0]
 		if err := eval.Rescale(vec, scale, vec); err != nil {
 			panic(err)
@@ -194,21 +198,21 @@ func dft(vec *Ciphertext, plainVectors []*PtDiagMatrix, forward bool, eval Evalu
 // Sine Evaluation ct0 = Q/(2pi) * sin((2pi/Q) * ct0)
 func (btp *Bootstrapper) evaluateSine(ct0, ct1 *Ciphertext) (*Ciphertext, *Ciphertext) {
 
-	ct0.MulScale(btp.MessageRatio)
+	ct0.Scale *= btp.MessageRatio
 	btp.evaluator.scale = btp.sinescale // Reference scale is changed to the Qi used for the SineEval (which is also close to the new ciphetext scale)
 
 	ct0 = btp.evaluateCheby(ct0)
 
-	ct0.DivScale(btp.MessageRatio * btp.postscale / btp.params.Scale())
+	ct0.Scale /= (btp.MessageRatio * btp.postscale / btp.params.Scale())
 
 	if ct1 != nil {
-		ct1.MulScale(btp.MessageRatio)
+		ct1.Scale *= btp.MessageRatio
 		ct1 = btp.evaluateCheby(ct1)
-		ct1.DivScale(btp.MessageRatio * btp.postscale / btp.params.Scale())
+		ct1.Scale /= (btp.MessageRatio * btp.postscale / btp.params.Scale())
 	}
 
 	// Reference scale is changed back to the current ciphertext's scale.
-	btp.evaluator.scale = ct0.Scale()
+	btp.evaluator.scale = ct0.Scale
 
 	return ct0, ct1
 }
@@ -252,7 +256,7 @@ func (btp *Bootstrapper) evaluateCheby(ct *Ciphertext) *Ciphertext {
 
 	// ArcSine
 	if btp.ArcSineDeg > 0 {
-		if ct, err = btp.EvaluatePoly(ct, btp.arcSinePoly, ct.Scale()); err != nil {
+		if ct, err = btp.EvaluatePoly(ct, btp.arcSinePoly, ct.Scale); err != nil {
 			panic(err)
 		}
 	}

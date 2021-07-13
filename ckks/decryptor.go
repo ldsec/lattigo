@@ -1,79 +1,33 @@
 package ckks
 
 import (
-	"github.com/ldsec/lattigo/v2/ring"
 	"github.com/ldsec/lattigo/v2/rlwe"
-	"github.com/ldsec/lattigo/v2/utils"
 )
 
-// Decryptor is an interface for decrypting Ciphertexts. A Decryptor stores the secret-key.
+// Decryptor is an interface wrapping a rlwe.Decryptor.
 type Decryptor interface {
-	// DecryptNew decrypts the ciphertext and returns a newly created
-	// plaintext. A Horner method is used for evaluating the decryption.
-	// The level of the output plaintext is ciphertext.Level().
 	DecryptNew(ciphertext *Ciphertext) (plaintext *Plaintext)
-
-	// Decrypt decrypts the ciphertext and returns the result on the provided
-	// receiver plaintext. A Horner method is used for evaluating the
-	// decryption.
-	// The level of the output plaintext is min(ciphertext.Level(), plaintext.Level())
 	Decrypt(ciphertext *Ciphertext, plaintext *Plaintext)
 }
-
-// decryptor is a structure used to decrypt ciphertext. It stores the secret-key.
 type decryptor struct {
+	rlwe.Decryptor
 	params Parameters
-	ringQ  *ring.Ring
-	sk     *rlwe.SecretKey
 }
 
-// NewDecryptor instantiates a new Decryptor that will be able to decrypt ciphertexts
-// encrypted under the provided secret-key.
+// NewDecryptor instantiates a Decryptor for the CKKS scheme.
 func NewDecryptor(params Parameters, sk *rlwe.SecretKey) Decryptor {
-
-	if sk.Value.Degree() != params.N() {
-		panic("secret_key is invalid for the provided parameters")
-	}
-
-	return &decryptor{
-		params: params,
-		ringQ:  params.RingQ(),
-		sk:     sk,
-	}
+	return &decryptor{rlwe.NewDecryptor(params.Parameters, sk), params}
 }
 
-func (decryptor *decryptor) DecryptNew(ciphertext *Ciphertext) (plaintext *Plaintext) {
-
-	plaintext = NewPlaintext(decryptor.params, ciphertext.Level(), ciphertext.Scale())
-
-	decryptor.Decrypt(ciphertext, plaintext)
-
-	return plaintext
+// Decrypt decrypts the ciphertext and write the result in ptOut.
+func (dec *decryptor) DecryptNew(ciphertext *Ciphertext) (plaintext *Plaintext) {
+	pt := NewPlaintext(dec.params, ciphertext.Level(), ciphertext.Scale)
+	dec.Decryptor.Decrypt(ciphertext.Ciphertext, pt.Plaintext)
+	return pt
 }
 
-func (decryptor *decryptor) Decrypt(ciphertext *Ciphertext, plaintext *Plaintext) {
-
-	level := utils.MinInt(ciphertext.Level(), plaintext.Level())
-
-	plaintext.SetScale(ciphertext.Scale())
-
-	decryptor.ringQ.CopyLvl(level, ciphertext.Value[ciphertext.Degree()], plaintext.value)
-
-	plaintext.value.Coeffs = plaintext.value.Coeffs[:ciphertext.Level()+1]
-
-	for i := ciphertext.Degree(); i > 0; i-- {
-
-		decryptor.ringQ.MulCoeffsMontgomeryLvl(level, plaintext.value, decryptor.sk.Value, plaintext.value)
-		decryptor.ringQ.AddLvl(level, plaintext.value, ciphertext.Value[i-1], plaintext.value)
-
-		if i&7 == 7 {
-			decryptor.ringQ.ReduceLvl(level, plaintext.value, plaintext.value)
-		}
-	}
-
-	if (ciphertext.Degree())&7 != 7 {
-		decryptor.ringQ.ReduceLvl(level, plaintext.value, plaintext.value)
-	}
-
-	plaintext.value.Coeffs = plaintext.value.Coeffs[:level+1]
+// DecryptNew decrypts the ciphertext and returns the result in a newly allocated Plaintext.
+func (dec *decryptor) Decrypt(ciphertext *Ciphertext, plaintext *Plaintext) {
+	dec.Decryptor.Decrypt(&rlwe.Ciphertext{Value: ciphertext.Value}, &rlwe.Plaintext{Value: plaintext.Value})
+	plaintext.Scale = ciphertext.Scale
 }

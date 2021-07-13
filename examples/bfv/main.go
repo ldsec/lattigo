@@ -68,9 +68,9 @@ func obliviousRiding() {
 
 	decryptor := bfv.NewDecryptor(params, riderSk)
 
-	encryptorRiderPk := bfv.NewEncryptorFromPk(params, riderPk)
+	encryptorRiderPk := bfv.NewEncryptor(params, riderPk)
 
-	encryptorRiderSk := bfv.NewEncryptorFromSk(params, riderSk)
+	encryptorRiderSk := bfv.NewEncryptor(params, riderSk)
 
 	evaluator := bfv.NewEvaluator(params, rlwe.EvaluationKey{})
 

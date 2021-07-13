@@ -49,36 +49,36 @@ func BenchmarkBootstrapp(b *testing.B) {
 			var ct0, ct1 *Ciphertext
 
 			// Brings the ciphertext scale to Q0/2^{10}
-			btp.evaluator.ScaleUp(ct, math.Round(btp.prescale/ct.Scale()), ct)
+			btp.evaluator.ScaleUp(ct, math.Round(btp.prescale/ct.Scale), ct)
 
 			// ModUp ct_{Q_0} -> ct_{Q_L}
 			t = time.Now()
 			ct = btp.modUp(ct)
-			b.Log("After ModUp  :", time.Since(t), ct.Level(), ct.Scale())
+			b.Log("After ModUp  :", time.Since(t), ct.Level(), ct.Scale)
 
 			// Brings the ciphertext scale to sineQi/(Q0/scale) if its under
-			btp.evaluator.ScaleUp(ct, math.Round(btp.postscale/ct.Scale()), ct)
+			btp.evaluator.ScaleUp(ct, math.Round(btp.postscale/ct.Scale), ct)
 
 			//SubSum X -> (N/dslots) * Y^dslots
 			t = time.Now()
 			ct = btp.subSum(ct)
-			b.Log("After SubSum :", time.Since(t), ct.Level(), ct.Scale())
+			b.Log("After SubSum :", time.Since(t), ct.Level(), ct.Scale)
 
 			// Part 1 : Coeffs to slots
 			t = time.Now()
 			ct0, ct1 = CoeffsToSlots(ct, btp.pDFTInv, btp.evaluator)
-			b.Log("After CtS    :", time.Since(t), ct0.Level(), ct0.Scale())
+			b.Log("After CtS    :", time.Since(t), ct0.Level(), ct0.Scale)
 
 			// Part 2 : SineEval
 			t = time.Now()
 			ct0, ct1 = btp.evaluateSine(ct0, ct1)
-			b.Log("After Sine   :", time.Since(t), ct0.Level(), ct0.Scale())
+			b.Log("After Sine   :", time.Since(t), ct0.Level(), ct0.Scale)
 
 			// Part 3 : Slots to coeffs
 			t = time.Now()
 			ct0 = SlotsToCoeffs(ct0, ct1, btp.pDFT, btp.evaluator)
-			ct0.SetScale(math.Exp2(math.Round(math.Log2(ct0.Scale()))))
-			b.Log("After StC    :", time.Since(t), ct0.Level(), ct0.Scale())
+			ct0.Scale = math.Exp2(math.Round(math.Log2(ct0.Scale)))
+			b.Log("After StC    :", time.Since(t), ct0.Level(), ct0.Scale)
 		}
 	})
 }

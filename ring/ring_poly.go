@@ -3,12 +3,15 @@ package ring
 import (
 	"encoding/binary"
 	"errors"
+	"github.com/ldsec/lattigo/v2/utils"
 	"math/bits"
 )
 
 // Poly is the structure that contains the coefficients of a polynomial.
 type Poly struct {
-	Coeffs [][]uint64 // Coefficients in CRT representation
+	Coeffs  [][]uint64 // Coefficients in CRT representation
+	IsNTT   bool
+	IsMForm bool
 }
 
 // NewPoly creates a new polynomial with N coefficients set to zero and nbModuli moduli.
@@ -46,65 +49,84 @@ func (pol *Poly) Zero() {
 	}
 }
 
-// CopyNew creates a new polynomial p1 which is a copy of the target polynomial.
+// CopyNew creates an exact copy of the target polynomial.
 func (pol *Poly) CopyNew() (p1 *Poly) {
 	p1 = new(Poly)
-	p1.Coeffs = make([][]uint64, len(pol.Coeffs))
+	p1.Coeffs = make([][]uint64, pol.Level()+1)
 	for i := range pol.Coeffs {
 		p1.Coeffs[i] = make([]uint64, len(pol.Coeffs[i]))
-		p0tmp, p1tmp := pol.Coeffs[i], p1.Coeffs[i]
-		for j := range pol.Coeffs[i] {
-			p1tmp[j] = p0tmp[j]
-		}
+		copy(p1.Coeffs[i], pol.Coeffs[i])
 	}
+	p1.IsNTT = pol.IsNTT
+	p1.IsMForm = pol.IsMForm
 
-	return p1
+	return
+}
+
+// CopyValues copies the coefficients of p0 on p1 within the given Ring. It requires p1 to be at least as big p0.
+// Expects the degree of both polynomials to be identical.
+// Does not transfer the IsNTT and IsMForm flags.
+func CopyValues(p0, p1 *Poly) {
+	CopyValuesLvl(utils.MinInt(p0.Level(), p1.Level()), p0, p1)
+
 }
 
 // Copy copies the coefficients of p0 on p1 within the given Ring. It requires p1 to be at least as big p0.
-func (r *Ring) Copy(p0, p1 *Poly) {
+// Expects the degree of both polynomials to be identical.
+// Transfers the IsNTT and IsMForm flags.
+func Copy(p0, p1 *Poly) {
+	CopyValuesLvl(utils.MinInt(p0.Level(), p1.Level()), p0, p1)
+	p1.IsNTT = p0.IsNTT
+	p1.IsMForm = p0.IsMForm
+}
 
+// CopyValuesLvl copies the coefficients of p0 on p1 within the given Ring for the moduli from 0 to level.
+// Expects the degree of both polynomials to be identical.
+// Does not transfer the IsNTT and IsMForm flags.
+func CopyValuesLvl(level int, p0, p1 *Poly) {
 	if p0 != p1 {
-		for i := range r.Modulus {
-			p0tmp, p1tmp := p0.Coeffs[i], p1.Coeffs[i]
-			for j := 0; j < r.N; j++ {
-				p1tmp[j] = p0tmp[j]
-			}
+		for i := 0; i < level+1; i++ {
+			copy(p1.Coeffs[i], p0.Coeffs[i])
 		}
 	}
 }
 
 // CopyLvl copies the coefficients of p0 on p1 within the given Ring for the moduli from 0 to level.
-// Requires p1 to be as big as the target Ring.
-func (r *Ring) CopyLvl(level int, p0, p1 *Poly) {
+// Expects the degree of both polynomials to be identical.
+// Transfers the IsNTT and IsMForm flags.
+func CopyLvl(level int, p0, p1 *Poly) {
+	CopyValuesLvl(level, p0, p1)
+	p1.IsNTT = p0.IsNTT
+	p1.IsMForm = p0.IsMForm
+}
 
-	if p0 != p1 {
-		for i := 0; i < level+1; i++ {
-			p0tmp, p1tmp := p0.Coeffs[i], p1.Coeffs[i]
-			for j := 0; j < r.N; j++ {
-				p1tmp[j] = p0tmp[j]
-			}
+// CopyValues copies the coefficients of p1 on the target polynomial.
+// Onyl copies minLevel(pol, p1) levels.
+// Expects the degree of both polynomials to be identical.
+// Does not transfer the IsNTT and IsMForm flags.
+func (pol *Poly) CopyValues(p1 *Poly) {
+	if pol != p1 {
+		minLevel := utils.MinInt(pol.Level(), p1.Level())
+		for i := range p1.Coeffs[:minLevel+1] {
+			copy(pol.Coeffs[i], p1.Coeffs[i])
 		}
 	}
 }
 
 // Copy copies the coefficients of p1 on the target polynomial.
+// Onyl copies minLevel(pol, p1) levels.
+// Transfers the IsNTT and IsMForm flags.
 func (pol *Poly) Copy(p1 *Poly) {
-
-	if pol != p1 {
-		for i := range p1.Coeffs {
-			p0tmp, p1tmp := pol.Coeffs[i], p1.Coeffs[i]
-			for j := range p1.Coeffs[i] {
-				p0tmp[j] = p1tmp[j]
-			}
-		}
-	}
+	pol.CopyValues(p1)
+	pol.IsNTT = p1.IsNTT
+	pol.IsMForm = p1.IsMForm
 }
 
 // Equals returns true if the receiver Poly is equal to the provided other Poly.
 // This function checks for strict equality between the polynomial coefficients
 // (i.e., it does not consider congruence as equality within the ring like
 // `Ring.Equals` does).
+// Will not check if IsNTT and IsMForm flags are equal
 func (pol *Poly) Equals(other *Poly) bool {
 	if pol == other {
 		return true
@@ -128,21 +150,16 @@ func (pol *Poly) Equals(other *Poly) bool {
 // SetCoefficients sets the coefficients of the polynomial directly from a CRT format (double slice).
 func (pol *Poly) SetCoefficients(coeffs [][]uint64) {
 	for i := range coeffs {
-		for j := range coeffs[i] {
-			pol.Coeffs[i][j] = coeffs[i][j]
-		}
+		copy(pol.Coeffs[i], coeffs[i])
 	}
 }
 
 // GetCoefficients returns a new double slice that contains the coefficients of the polynomial.
 func (pol *Poly) GetCoefficients() (coeffs [][]uint64) {
 	coeffs = make([][]uint64, len(pol.Coeffs))
-
 	for i := range pol.Coeffs {
 		coeffs[i] = make([]uint64, len(pol.Coeffs[i]))
-		for j := range pol.Coeffs[i] {
-			coeffs[i][j] = pol.Coeffs[i][j]
-		}
+		copy(coeffs[i], pol.Coeffs[i])
 	}
 
 	return
@@ -174,8 +191,15 @@ func (pol *Poly) WriteTo(data []byte) (int, error) {
 	}
 	data[0] = uint8(bits.Len64(uint64(N)) - 1)
 	data[1] = uint8(numberModuli)
+	if pol.IsNTT {
+		data[2] = 1
+	}
 
-	cnt, err := WriteCoeffsTo(2, N, numberModuli, pol.Coeffs, data)
+	if pol.IsMForm {
+		data[3] = 1
+	}
+
+	cnt, err := WriteCoeffsTo(4, N, numberModuli, pol.Coeffs, data)
 
 	return cnt, err
 }
@@ -193,8 +217,15 @@ func (pol *Poly) WriteTo32(data []byte) (int, error) {
 	}
 	data[0] = uint8(bits.Len64(uint64(N)) - 1)
 	data[1] = uint8(numberModuli)
+	if pol.IsNTT {
+		data[2] = 1
+	}
 
-	cnt, err := WriteCoeffsTo32(2, N, numberModuli, pol.Coeffs, data)
+	if pol.IsMForm {
+		data[3] = 1
+	}
+
+	cnt, err := WriteCoeffsTo32(4, N, numberModuli, pol.Coeffs, data)
 
 	return cnt, err
 }
@@ -218,7 +249,7 @@ func (pol *Poly) GetDataLen32(WithMetadata bool) (cnt int) {
 	cnt = (pol.LenModuli() * pol.Degree()) << 2
 
 	if WithMetadata {
-		cnt += 2
+		cnt += 4
 	}
 	return
 }
@@ -236,7 +267,7 @@ func (pol *Poly) GetDataLen(WithMetadata bool) (cnt int) {
 	cnt = (pol.LenModuli() * pol.Degree()) << 3
 
 	if WithMetadata {
-		cnt += 2
+		cnt += 4
 	}
 	return
 }
@@ -278,11 +309,20 @@ func (pol *Poly) MarshalBinary() (data []byte, err error) {
 // UnmarshalBinary decodes a slice of byte on the target polynomial.
 func (pol *Poly) UnmarshalBinary(data []byte) (err error) {
 
-	N := uint64(1 << data[0])
-	numberModulies := uint64(data[1])
-	pointer := uint64(2)
+	N := int(1 << data[0])
+	numberModulies := int(data[1])
 
-	if ((uint64(len(data)) - pointer) >> 3) != N*numberModulies {
+	if data[2] == 1 {
+		pol.IsNTT = true
+	}
+
+	if data[3] == 1 {
+		pol.IsMForm = true
+	}
+
+	pointer := 4
+
+	if ((len(data) - pointer) >> 3) != N*numberModulies {
 		return errors.New("invalid polynomial encoding")
 	}
 
@@ -299,7 +339,16 @@ func (pol *Poly) DecodePolyNew(data []byte) (pointer int, err error) {
 
 	N := int(1 << data[0])
 	numberModulies := int(data[1])
-	pointer = 2
+
+	if data[2] == 1 {
+		pol.IsNTT = true
+	}
+
+	if data[3] == 1 {
+		pol.IsMForm = true
+	}
+
+	pointer = 4
 
 	if pol.Coeffs == nil {
 		pol.Coeffs = make([][]uint64, numberModulies)
@@ -318,7 +367,16 @@ func (pol *Poly) DecodePolyNew32(data []byte) (pointer int, err error) {
 
 	N := int(1 << data[0])
 	numberModulies := int(data[1])
-	pointer = 2
+
+	if data[2] == 1 {
+		pol.IsNTT = true
+	}
+
+	if data[3] == 1 {
+		pol.IsMForm = true
+	}
+
+	pointer = 4
 
 	if pol.Coeffs == nil {
 		pol.Coeffs = make([][]uint64, numberModulies)

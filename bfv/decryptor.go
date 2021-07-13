@@ -1,69 +1,33 @@
 package bfv
 
 import (
-	"github.com/ldsec/lattigo/v2/ring"
 	"github.com/ldsec/lattigo/v2/rlwe"
 )
 
-// Decryptor is an interface for decryptors
+// Decryptor is an interface wrapping a rlwe.Decryptor.
 type Decryptor interface {
-	// DecryptNew decrypts the input ciphertext and returns the result on a new
-	// plaintext.
-	DecryptNew(ciphertext *Ciphertext) *Plaintext
-
-	// Decrypt decrypts the input ciphertext and returns the result on the
-	// provided receiver plaintext.
+	DecryptNew(ciphertext *Ciphertext) (plaintext *Plaintext)
 	Decrypt(ciphertext *Ciphertext, plaintext *Plaintext)
 }
 
-// decryptor is a structure used to decrypt ciphertexts. It stores the secret-key.
 type decryptor struct {
-	params   Parameters
-	ringQ    *ring.Ring
-	sk       *rlwe.SecretKey
-	polypool *ring.Poly
+	rlwe.Decryptor
+	params Parameters
 }
 
-// NewDecryptor creates a new Decryptor from the parameters with the secret-key
-// given as input.
+// NewDecryptor instantiates a Decryptor for the BFV scheme.
 func NewDecryptor(params Parameters, sk *rlwe.SecretKey) Decryptor {
-
-	ringQ := params.RingQ()
-
-	return &decryptor{
-		params:   params,
-		ringQ:    ringQ,
-		sk:       sk,
-		polypool: ringQ.NewPoly(),
-	}
+	return &decryptor{rlwe.NewDecryptor(params.Parameters, sk), params}
 }
 
-func (decryptor *decryptor) DecryptNew(ciphertext *Ciphertext) *Plaintext {
-	p := NewPlaintext(decryptor.params)
-	decryptor.Decrypt(ciphertext, p)
-	return p
+// Decrypt decrypts the ciphertext and write the result in ptOut.
+func (dec *decryptor) Decrypt(ct *Ciphertext, ptOut *Plaintext) {
+	dec.Decryptor.Decrypt(&rlwe.Ciphertext{Value: ct.Value}, &rlwe.Plaintext{Value: ptOut.Value})
 }
 
-func (decryptor *decryptor) Decrypt(ciphertext *Ciphertext, p *Plaintext) {
-
-	ringQ := decryptor.ringQ
-	tmp := decryptor.polypool
-
-	ringQ.NTTLazy(ciphertext.Value[ciphertext.Degree()], p.value)
-
-	for i := ciphertext.Degree(); i > 0; i-- {
-		ringQ.MulCoeffsMontgomery(p.value, decryptor.sk.Value, p.value)
-		ringQ.NTTLazy(ciphertext.Value[i-1], tmp)
-		ringQ.Add(p.value, tmp, p.value)
-
-		if i&3 == 3 {
-			ringQ.Reduce(p.value, p.value)
-		}
-	}
-
-	if (ciphertext.Degree())&3 != 3 {
-		ringQ.Reduce(p.value, p.value)
-	}
-
-	ringQ.InvNTT(p.value, p.value)
+// DecryptNew decrypts the ciphertext and returns the result in a newly allocated Plaintext.
+func (dec *decryptor) DecryptNew(ct *Ciphertext) (ptOut *Plaintext) {
+	pt := NewPlaintext(dec.params)
+	dec.Decryptor.Decrypt(ct.Ciphertext, pt.Plaintext)
+	return pt
 }

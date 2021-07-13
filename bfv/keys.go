@@ -2,6 +2,11 @@ package bfv
 
 import "github.com/ldsec/lattigo/v2/rlwe"
 
+// NewKeyGenerator creates a rlwe.KeyGenerator instance from the BFV parameters.
+func NewKeyGenerator(params Parameters) rlwe.KeyGenerator {
+	return rlwe.NewKeyGenerator(params.Parameters)
+}
+
 // NewSecretKey returns an allocated BFV secret key with zero values.
 func NewSecretKey(params Parameters) (sk *rlwe.SecretKey) {
 	return rlwe.NewSecretKey(params.Parameters)

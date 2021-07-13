@@ -119,8 +119,8 @@ func (rtg *RTGProtocol) Aggregate(share1, share2, shareOut *RTGShare) {
 // GenRotationKey finalizes the RTG protocol and populates the input RotationKey with the computed collective SwitchingKey.
 func (rtg *RTGProtocol) GenRotationKey(share *RTGShare, crp []*ring.Poly, rotKey *rlwe.SwitchingKey) {
 	for i := 0; i < rtg.params.Beta(); i++ {
-		rtg.ringQP.Copy(share.Value[i], rotKey.Value[i][0])
-		rtg.ringQP.Copy(crp[i], rotKey.Value[i][1])
+		ring.CopyValues(share.Value[i], rotKey.Value[i][0])
+		ring.CopyValues(crp[i], rotKey.Value[i][1])
 	}
 }
 

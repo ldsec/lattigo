@@ -31,7 +31,7 @@ func (ciphertext *Ciphertext) MarshalBinary() (data []byte, err error) {
 // UnmarshalBinary decodes a previously marshaled Ciphertext in the target Ciphertext.
 func (ciphertext *Ciphertext) UnmarshalBinary(data []byte) (err error) {
 
-	ciphertext.Element = new(rlwe.Element)
+	ciphertext.Ciphertext = new(rlwe.Ciphertext)
 
 	ciphertext.Value = make([]*ring.Poly, uint8(data[0]))
 

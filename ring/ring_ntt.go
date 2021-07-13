@@ -20,21 +20,6 @@ func (r *Ring) NTTLvl(level int, p1, p2 *Poly) {
 	}
 }
 
-// InvNTT computes the inverse-NTT of p1 and returns the result on p2.
-func (r *Ring) InvNTT(p1, p2 *Poly) {
-	for x := range r.Modulus {
-		InvNTT(p1.Coeffs[x], p2.Coeffs[x], r.N, r.NttPsiInv[x], r.NttNInv[x], r.Modulus[x], r.MredParams[x])
-	}
-}
-
-// InvNTTLvl computes the inverse-NTT of p1 and returns the result on p2.
-// The value level defines the number of moduli of the input polynomials.
-func (r *Ring) InvNTTLvl(level int, p1, p2 *Poly) {
-	for x := 0; x < level+1; x++ {
-		InvNTT(p1.Coeffs[x], p2.Coeffs[x], r.N, r.NttPsiInv[x], r.NttNInv[x], r.Modulus[x], r.MredParams[x])
-	}
-}
-
 // NTTLazy computes the NTT of p1 and returns the result on p2.
 // Output values are in the range [0, 2q-1]
 func (r *Ring) NTTLazy(p1, p2 *Poly) {
@@ -49,6 +34,21 @@ func (r *Ring) NTTLazy(p1, p2 *Poly) {
 func (r *Ring) NTTLazyLvl(level int, p1, p2 *Poly) {
 	for x := 0; x < level+1; x++ {
 		NTTLazy(p1.Coeffs[x], p2.Coeffs[x], r.N, r.NttPsi[x], r.Modulus[x], r.MredParams[x], r.BredParams[x])
+	}
+}
+
+// InvNTT computes the inverse-NTT of p1 and returns the result on p2.
+func (r *Ring) InvNTT(p1, p2 *Poly) {
+	for x := range r.Modulus {
+		InvNTT(p1.Coeffs[x], p2.Coeffs[x], r.N, r.NttPsiInv[x], r.NttNInv[x], r.Modulus[x], r.MredParams[x])
+	}
+}
+
+// InvNTTLvl computes the inverse-NTT of p1 and returns the result on p2.
+// The value level defines the number of moduli of the input polynomials.
+func (r *Ring) InvNTTLvl(level int, p1, p2 *Poly) {
+	for x := 0; x < level+1; x++ {
+		InvNTT(p1.Coeffs[x], p2.Coeffs[x], r.N, r.NttPsiInv[x], r.NttNInv[x], r.Modulus[x], r.MredParams[x])
 	}
 }
 

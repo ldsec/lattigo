@@ -194,6 +194,27 @@ func GenSwitchkeysRescalingParams(Q, P []uint64) (params []uint64) {
 	return
 }
 
+func sliceBitReverseInPlaceFloat64(slice []float64, N int) {
+
+	var bit, j int
+
+	for i := 1; i < N; i++ {
+
+		bit = N >> 1
+
+		for j >= bit {
+			j -= bit
+			bit >>= 1
+		}
+
+		j += bit
+
+		if i < j {
+			slice[i], slice[j] = slice[j], slice[i]
+		}
+	}
+}
+
 func sliceBitReverseInPlaceComplex128(slice []complex128, N int) {
 
 	var bit, j int

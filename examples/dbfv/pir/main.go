@@ -41,7 +41,7 @@ type party struct {
 	rkgShareOne *drlwe.RKGShare
 	rkgShareTwo *drlwe.RKGShare
 	rtgShare    *drlwe.RTGShare
-	cksShare    dbfv.CKSShare
+	cksShare    *drlwe.CKSShare
 
 	input []uint64
 }
@@ -162,7 +162,7 @@ func main() {
 
 	// Ciphertexts encrypted under CPK and stored in the cloud
 	l.Println("> Encrypt Phase")
-	encryptor := bfv.NewEncryptorFromPk(params, pk)
+	encryptor := bfv.NewEncryptor(params, pk)
 	pt := bfv.NewPlaintext(params)
 	elapsedEncryptParty := runTimedParty(func() {
 		for i, pi := range P {
@@ -207,14 +207,14 @@ func cksphase(params bfv.Parameters, P []*party, result *bfv.Ciphertext) *bfv.Ci
 	cks := dbfv.NewCKSProtocol(params, 3.19) // Collective public-key re-encryption
 
 	for _, pi := range P {
-		pi.cksShare = cks.AllocateShare()
+		pi.cksShare = cks.AllocateShareBFV()
 	}
 
-	zero := params.RingQ().NewPoly()
-	cksCombined := cks.AllocateShare()
+	zero := bfv.NewSecretKey(params)
+	cksCombined := cks.AllocateShareBFV()
 	elapsedPCKSParty = runTimedParty(func() {
 		for _, pi := range P[1:] {
-			cks.GenShare(pi.sk.Value, zero, result, pi.cksShare)
+			cks.GenShare(pi.sk, zero, result.Ciphertext, pi.cksShare)
 		}
 	}, len(P)-1)
 
@@ -223,7 +223,7 @@ func cksphase(params bfv.Parameters, P []*party, result *bfv.Ciphertext) *bfv.Ci
 		for _, pi := range P {
 			cks.AggregateShares(pi.cksShare, cksCombined, cksCombined)
 		}
-		cks.KeySwitch(cksCombined, result, encOut)
+		cks.KeySwitch(cksCombined, result.Ciphertext, encOut.Ciphertext)
 	})
 	l.Printf("\tdone (cloud: %s, party: %s)\n", elapsedCKSCloud, elapsedPCKSParty)
 

@@ -79,7 +79,6 @@ func TestRing(t *testing.T) {
 		testModularReduction(testContext, t)
 		testMForm(testContext, t)
 		testMulScalarBigint(testContext, t)
-		testMulPoly(testContext, t)
 		testExtendBasis(testContext, t)
 		testScaling(testContext, t)
 		testMultByMonomial(testContext, t)
@@ -554,38 +553,6 @@ func testMulScalarBigint(testContext *testParams, t *testing.T) {
 		testContext.ringQ.MulScalarBigint(polTest, scalarBigint, polTest)
 
 		require.True(t, testContext.ringQ.Equal(polWant, polTest))
-	})
-}
-
-func testMulPoly(testContext *testParams, t *testing.T) {
-
-	p1 := testContext.uniformSamplerQ.ReadNew()
-	p2 := testContext.uniformSamplerQ.ReadNew()
-	p3Test := testContext.ringQ.NewPoly()
-	p3Want := testContext.ringQ.NewPoly()
-
-	testContext.ringQ.Reduce(p1, p1)
-	testContext.ringQ.Reduce(p2, p2)
-
-	testContext.ringQ.MulPolyNaive(p1, p2, p3Want)
-
-	t.Run(testString("MulPoly/Barrett/", testContext.ringQ), func(t *testing.T) {
-
-		testContext.ringQ.MulPoly(p1, p2, p3Test)
-
-		require.Equal(t, p3Want.Coeffs[0][:testContext.ringQ.N], p3Test.Coeffs[0][:testContext.ringQ.N])
-	})
-
-	t.Run(testString("MulPoly/Montgomery/", testContext.ringQ), func(t *testing.T) {
-
-		testContext.ringQ.MForm(p1, p1)
-		testContext.ringQ.MForm(p2, p2)
-
-		testContext.ringQ.MulPolyMontgomery(p1, p2, p3Test)
-
-		testContext.ringQ.InvMForm(p3Test, p3Test)
-
-		require.Equal(t, p3Want.Coeffs[0][:testContext.ringQ.N], p3Test.Coeffs[0][:testContext.ringQ.N])
 	})
 }
 

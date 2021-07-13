@@ -31,10 +31,10 @@ func chebyshevinterpolation() {
 	sk, pk := kgen.GenKeyPair()
 
 	// Relinearization key
-	rlk := kgen.GenRelinearizationKey(sk)
+	rlk := kgen.GenRelinearizationKey(sk, 2)
 
 	// Encryptor
-	encryptor := ckks.NewEncryptorFromPk(params, pk)
+	encryptor := ckks.NewEncryptor(params, pk)
 
 	// Decryptor
 	decryptor := ckks.NewDecryptor(params, sk)
@@ -80,7 +80,7 @@ func chebyshevinterpolation() {
 	}
 
 	// We evaluate the interpolated Chebyshev interpolant on the ciphertext
-	if ciphertext, err = evaluator.EvaluateCheby(ciphertext, chebyapproximation, ciphertext.Scale()); err != nil {
+	if ciphertext, err = evaluator.EvaluateCheby(ciphertext, chebyapproximation, ciphertext.Scale); err != nil {
 		panic(err)
 	}
 
@@ -113,7 +113,7 @@ func printDebug(params ckks.Parameters, ciphertext *ckks.Ciphertext, valuesWant 
 
 	fmt.Println()
 	fmt.Printf("Level: %d (logQ = %d)\n", ciphertext.Level(), params.LogQLvl(ciphertext.Level()))
-	fmt.Printf("Scale: 2^%f\n", math.Log2(ciphertext.Scale()))
+	fmt.Printf("Scale: 2^%f\n", math.Log2(ciphertext.Scale))
 	fmt.Printf("ValuesTest: %6.10f %6.10f %6.10f %6.10f...\n", valuesTest[0], valuesTest[1], valuesTest[2], valuesTest[3])
 	fmt.Printf("ValuesWant: %6.10f %6.10f %6.10f %6.10f...\n", valuesWant[0], valuesWant[1], valuesWant[2], valuesWant[3])
 	fmt.Println()

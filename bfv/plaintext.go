@@ -1,7 +1,6 @@
 package bfv
 
 import (
-	"github.com/ldsec/lattigo/v2/ring"
 	"github.com/ldsec/lattigo/v2/rlwe"
 )
 
@@ -11,8 +10,7 @@ import (
 // and will result in less efficient Ciphert-Plaintext multiplication than PlaintextMul. See bfv/encoder.go
 // for more information on plaintext types.
 type Plaintext struct {
-	*rlwe.Element
-	value *ring.Poly
+	*rlwe.Plaintext
 }
 
 // PlaintextRingT represents a plaintext element in R_t.
@@ -29,23 +27,20 @@ type PlaintextMul Plaintext
 // The plaintext will be in RingQ and scaled by Q/t.
 // Slower encoding and larger plaintext size
 func NewPlaintext(params Parameters) *Plaintext {
-	plaintext := &Plaintext{rlwe.NewElement(params.Parameters, 0), nil}
-	plaintext.value = plaintext.Element.Value[0]
+	plaintext := &Plaintext{rlwe.NewPlaintext(params.Parameters, params.MaxLevel())}
 	return plaintext
 }
 
 // NewPlaintextRingT creates and allocates a new plaintext in RingT (single modulus T).
 // The plaintext will be in RingT.
 func NewPlaintextRingT(params Parameters) *PlaintextRingT {
-	plaintext := &PlaintextRingT{rlwe.NewElementAtLevel(params.Parameters, 0, 0), nil}
-	plaintext.value = plaintext.Element.Value[0]
+	plaintext := &PlaintextRingT{rlwe.NewPlaintext(params.Parameters, 0)}
 	return plaintext
 }
 
 // NewPlaintextMul creates and allocates a new plaintext optimized for ciphertext x plaintext multiplication.
 // The plaintext will be in the NTT and Montgomery domain of RingQ and not scaled by Q/t.
 func NewPlaintextMul(params Parameters) *PlaintextMul {
-	plaintext := &PlaintextMul{rlwe.NewElement(params.Parameters, 0), nil}
-	plaintext.value = plaintext.Element.Value[0]
+	plaintext := &PlaintextMul{rlwe.NewPlaintext(params.Parameters, params.MaxLevel())}
 	return plaintext
 }

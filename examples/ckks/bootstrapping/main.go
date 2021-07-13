@@ -14,7 +14,7 @@ func main() {
 	var err error
 
 	var btp *ckks.Bootstrapper
-	var kgen ckks.KeyGenerator
+	var kgen rlwe.KeyGenerator
 	var encoder ckks.Encoder
 	var sk *rlwe.SecretKey
 	var pk *rlwe.PublicKey
@@ -44,13 +44,13 @@ func main() {
 
 	encoder = ckks.NewEncoder(params)
 	decryptor = ckks.NewDecryptor(params, sk)
-	encryptor = ckks.NewEncryptorFromPk(params, pk)
+	encryptor = ckks.NewEncryptor(params, pk)
 
 	fmt.Println()
 	fmt.Println("Generating bootstrapping keys...")
 	rotations := btpParams.RotationsForBootstrapping(params.LogSlots())
 	rotkeys := kgen.GenRotationKeysForRotations(rotations, true, sk)
-	rlk := kgen.GenRelinearizationKey(sk)
+	rlk := kgen.GenRelinearizationKey(sk, 2)
 	btpKey := ckks.BootstrappingKey{Rlk: rlk, Rtks: rotkeys}
 	if btp, err = ckks.NewBootstrapper(params, btpParams, btpKey); err != nil {
 		panic(err)
@@ -95,7 +95,7 @@ func printDebug(params ckks.Parameters, ciphertext *ckks.Ciphertext, valuesWant 
 
 	fmt.Println()
 	fmt.Printf("Level: %d (logQ = %d)\n", ciphertext.Level(), params.LogQLvl(ciphertext.Level()))
-	fmt.Printf("Scale: 2^%f\n", math.Log2(ciphertext.Scale()))
+	fmt.Printf("Scale: 2^%f\n", math.Log2(ciphertext.Scale))
 	fmt.Printf("ValuesTest: %6.10f %6.10f %6.10f %6.10f...\n", valuesTest[0], valuesTest[1], valuesTest[2], valuesTest[3])
 	fmt.Printf("ValuesWant: %6.10f %6.10f %6.10f %6.10f...\n", valuesWant[0], valuesWant[1], valuesWant[2], valuesWant[3])
 

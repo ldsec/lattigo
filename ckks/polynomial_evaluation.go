@@ -302,7 +302,7 @@ func recurse(targetScale float64, logSplit, logDegree int, coeffs *Poly, C map[i
 	//fmt.Printf("X^%2d : qi %d %t %d %d\n", nextPower, level, coeffsq.lead, coeffsq.maxDeg, 1<<(logDegree-1))
 	//fmt.Println()
 	var tmp *Ciphertext
-	if res, err = recurse(targetScale*currentQi/C[nextPower].Scale(), logSplit, logDegree, coeffsq, C, evaluator); err != nil {
+	if res, err = recurse(targetScale*currentQi/C[nextPower].Scale, logSplit, logDegree, coeffsq, C, evaluator); err != nil {
 		return nil, err
 	}
 
@@ -375,7 +375,7 @@ func recurseCheby(targetScale float64, logSplit, logDegree int, coeffs *Poly, C 
 	//fmt.Printf("X^%2d : qi %d %t %d %d\n", nextPower, level, coeffsq.lead, coeffsq.maxDeg, 1<<(logDegree-1))
 	//fmt.Println()
 
-	if res, err = recurseCheby(targetScale*currentQi/C[nextPower].Scale(), logSplit, logDegree, coeffsq, C, evaluator); err != nil {
+	if res, err = recurseCheby(targetScale*currentQi/C[nextPower].Scale, logSplit, logDegree, coeffsq, C, evaluator); err != nil {
 		return nil, err
 	}
 
@@ -445,7 +445,7 @@ func evaluatePolyFromPowerBasis(targetScale float64, coeffs *Poly, C map[int]*Ci
 		if key != 0 && (math.Abs(real(coeffs.coeffs[key])) > 1e-14 || math.Abs(imag(coeffs.coeffs[key])) > 1e-14) {
 
 			// Target scale * rescale-scale / power basis scale
-			constScale := targetScale * currentQi / C[key].Scale()
+			constScale := targetScale * currentQi / C[key].Scale
 
 			cReal := int64(real(coeffs.coeffs[key]) * constScale)
 			cImag := int64(imag(coeffs.coeffs[key]) * constScale)
